@@ -32,9 +32,20 @@ dinnerTime = datetime(2018, 07, 01, 20)
 environment = state(data = dinnerAssigned, dinnerTime = dinnerTime, travelMode = 'simple')
 
 tmp = mx.sym.Variable('data')
-tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 3)
+tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 100)
+tmp = mx.sym.Dropout(data = tmp, p = 0.2)
+tmp = mx.sym.Activation(data = tmp, act_type = 'relu')
+tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 100)
+tmp = mx.sym.Dropout(data = tmp, p = 0.1)
+tmp = mx.sym.Activation(data = tmp, act_type = 'relu')
 
-mainThread = mT(tmp, environment, 'a3c/test/a3c.cfg')
+mainThread = mT(tmp, environment, 'a3c/test/a3c.cfg', verbose = True)
+
+mainThread.run()
+
+
+
+
 
 
 tmp = mxT.a3cOutput(tmp,environment.getRewards().size)

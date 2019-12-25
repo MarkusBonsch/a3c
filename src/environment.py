@@ -16,6 +16,20 @@ class environment:
     __metaclass__ = ABCMeta
     
     @abstractmethod
+    def getState(self):    
+        """
+        Returns the state as numpy array
+        """
+        raise NotImplementedError("Please overload getState method when implementing environment.")    
+
+    @abstractmethod
+    def getValidActions(self):    
+        """
+        Returns a vector with indices of the valid actions
+        """
+        raise NotImplementedError("Please overload getValidActions method when implementing environment.")    
+
+    @abstractmethod
     def reset(self):
         """
         resets the environment to starting conditions, i.e. starts a new game

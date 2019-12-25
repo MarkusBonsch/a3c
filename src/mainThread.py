@@ -6,7 +6,12 @@ Created on Sun Dec 23 11:28:01 2018
 """
 from mxnetTools import mxnetTools as mxT
 from mxnetTools import a3cModule
+from worker import worker
 import yaml
+import pandas as pd
+import os
+import plotly.graph_objs as go
+import plotlyInterface as pi
 
 class mainThread:
     """
@@ -23,7 +28,7 @@ class mainThread:
     
     A log, essentially a list where the workers can enter train metrics
     """    
-    def __init__(self, symbol, environment, configFile):
+    def __init__(self, symbol, environment, configFile, verbose = False):
         """
         Sets up a parameter server accorfing to a config.
         Args:
@@ -51,6 +56,7 @@ class mainThread:
                                 inputDim      = self.inputDim,
                                 optimizer     = self.cfg['optimizer'],
                                 optimizerArgs = self.cfg['optimizerArgs'])
+        self.verbose = verbose
         
     def readConfig(self, configFile):
         """
@@ -69,7 +75,37 @@ class mainThread:
         Do the actual training.
         """
         
+        ## clear the log
+        self.log = []
         ## initialize workers
+        workers = []
+        for wId in xrange(self.cfg['nWorkers']):
+            thisWorker = worker(self)
+            workers.append(thisWorker)
+            thisWorker.start()
         
+        for x in workers:
+            x.join()
+            
+        ## transform the log into nice pandas data frames
+        self.log = map(pd.DataFrame,self.log)
         
-               
+    def getPerformancePlots(self, dirname = 'mainThreadPerformance'):
+        """
+        Produces some plots with scores
+            Args: 
+                dirname (str): the output folder        
+        """
+        os.mkdir(dirname)
+        
+        data = []
+        for wData in self.log:
+            data.append(go.Scatter(
+                        x = wData['gamesFinished'],
+                        y = wData['score'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wData.loc[0,'workerId'])))      
+        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'scores.html'))
+    
