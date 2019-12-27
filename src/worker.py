@@ -54,7 +54,7 @@ class worker(threading.Thread):
         score = -999
         if self.environment.isDone():
             score = self.environment.getScore()
-        tmp = {'workerId': self.id, 'step':self.nSteps, 'gamesFinished': self.gamesPlayed, 'loss': self.meanLoss, 'score': score}
+        tmp = {'workerId': self.id, 'step':self.nSteps, 'gamesFinished': self.gamesPlayed + 1, 'loss': self.meanLoss, 'score': score}
         print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'])
         return tmp
         
@@ -86,14 +86,6 @@ class worker(threading.Thread):
                     ## renormalize to 1
                     allowedPolicies = allowedPolicies / allowedPolicies.sum()
                 
-                if self.verbose:
-                    print '\npolicy scores:'
-                    print self.module.getPolicy()
-                    print 'validActions:'
-                    print self.environment.getValidActions()
-                    print 'Allowed policies:'                    
-                    print allowedPolicies
-                    print '\n'
                 policies.append(mx.nd.sample_multinomial(data  = allowedPolicies,
                                                          shape = 1))
                 ## store reward and value as mx.nd.arrays
@@ -103,6 +95,15 @@ class worker(threading.Thread):
                 self.environment.update(policies[-1].asnumpy())
                 if self.nSteps%self.updateFrequency == 0:
                 ## we are updating!
+                  if self.verbose:
+                    print "Worker{0}; game {1}; step {2}!".format(self.id, self.gamesPlayed + 1, self.nSteps)
+                    print '\npolicy scores:'
+                    print self.module.getPolicy()
+                    print 'validActions:'
+                    print self.environment.getValidActions()
+                    print 'Allowed policies:'                    
+                    print allowedPolicies
+                    print '\n'
                     self.meanLoss = 0
                     if self.environment.isDone():
                         discountedReward = 0
@@ -129,14 +130,13 @@ class worker(threading.Thread):
                         self.module.backward() ## gradreq is add, so gradients add up              
                     self.meanLoss = float((self.meanLoss / self.updateFrequency).asnumpy())
                     ## be sure to synchronize before actual update                        
-                    self.lock.acquire()                                   
-                    ## send gradients to mainThread
-                    self.mainThread.module.copyGradients(fromModule = self.module)
-                    ## perform update on mainThread
-                    self.mainThread.module.updateParams() ## gradients on mainThread get cleared automatically
-                    ## get new parameters from mainThread
-                    self.module.copyParams(fromModule = self.mainThread.module)
-                    self.lock.release()
+                    with self.lock:                                   
+                        ## send gradients to mainThread
+                        self.mainThread.module.copyGradients(fromModule = self.module)
+                        ## perform update on mainThread
+                        self.mainThread.module.updateParams() ## gradients on mainThread get cleared automatically
+                        ## get new parameters from mainThread
+                        self.module.copyParams(fromModule = self.mainThread.module)
                     ## clear local gradients.
                     self.module.clearGradients()
                     ## clear memory
