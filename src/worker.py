@@ -55,7 +55,8 @@ class worker(threading.Thread):
         if self.environment.isDone():
             score = self.environment.getScore()
         tmp = {'workerId': self.id, 'step':self.nSteps, 'gamesFinished': self.gamesPlayed + 1, 'loss': self.meanLoss, 'score': score}
-        print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'])
+        if verbose: 
+            print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'])
         return tmp
         
     def run(self):
@@ -93,27 +94,30 @@ class worker(threading.Thread):
                 values.append(self.module.getValue())
                 ## apply action on state. Important before update
                 self.environment.update(policies[-1].asnumpy())
-                if self.nSteps%self.updateFrequency == 0:
+                if self.nSteps%self.updateFrequency == 0 or self.environment.isDone():
                 ## we are updating!
-                  if self.verbose:
-                    print "Worker{0}; game {1}; step {2}!".format(self.id, self.gamesPlayed + 1, self.nSteps)
-                    print '\npolicy scores:'
-                    print self.module.getPolicy()
-                    print 'validActions:'
-                    print self.environment.getValidActions()
-                    print 'Allowed policies:'                    
-                    print allowedPolicies
-                    print '\n'
+                    updateSteps = self.nSteps%self.updateFrequency
+                    if updateSteps == 0:
+                        updateSteps = self.updateFrequency
+                    if self.verbose:
+                        print "Worker{0}; game {1}; step {2}; updateSteps {3}!".format(self.id, self.gamesPlayed + 1, self.nSteps, updateSteps)
+#                        print '\npolicy scores:'
+#                        print self.module.getPolicy()
+#                        print 'validActions:'
+#                        print self.environment.getValidActions()
+#                        print 'Allowed policies:'                    
+#                        print allowedPolicies
+                        print '\n'
                     self.meanLoss = 0
                     if self.environment.isDone():
                         discountedReward = 0
                     else:
-                        ## get value of new state after policy update as
-                        ## future reweard estimate
-                        self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
-                                            is_train=True)
-                        discountedReward = self.module.getValue()
-                    for t in reversed(range(self.updateFrequency)):
+                      ## get value of new state after policy update as
+                      ## future reweard estimate
+                      self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
+                                          is_train=True)
+                      discountedReward = self.module.getValue()
+                    for t in reversed(range(updateSteps)):
                     ## loop over all memory to do the update.
                         ## update reward
                         discountedReward = (self.rewardDiscount * discountedReward
@@ -128,7 +132,7 @@ class worker(threading.Thread):
                                             is_train=True)
                         self.meanLoss += self.module.getLoss()
                         self.module.backward() ## gradreq is add, so gradients add up              
-                    self.meanLoss = float((self.meanLoss / self.updateFrequency).asnumpy())
+                    self.meanLoss = float((self.meanLoss / updateSteps).asnumpy())
                     ## be sure to synchronize before actual update                        
                     with self.lock:                                   
                         ## send gradients to mainThread
@@ -150,6 +154,7 @@ class worker(threading.Thread):
             self.mainThread.log[self.id].append(tmp)
                 
             self.gamesPlayed += 1
+            self.nSteps = 0
                 
                 
         
