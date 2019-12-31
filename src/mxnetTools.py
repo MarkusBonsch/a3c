@@ -104,13 +104,14 @@ class mxnetTools:
         ## policy loss needs to be constructed by hand.
         advantageLabel = mx.sym.Variable('advantageLabel')        
         policySM = mx.sym.softmax(policyLayer)
-        policyLoss = -mx.sym.nansum(mx.sym.log(policySM + 1e-7) * advantageLabel)
+        policyLoss = mx.sym.MakeLoss(data = -mx.sym.nansum(mx.sym.log(policySM + 1e-7) * advantageLabel),
+                                     name = 'policyLoss')
         ## entropy loss
-        entropyLoss = mx.sym.nansum(mx.sym.log(policySM + 1e-7) * policySM)
-        policyLossTotal = mx.sym.MakeLoss(policyLoss + entropyLossScale * entropyLoss,
-                                          name = 'policyLoss')
+        entropyLoss = mx.sym.MakeLoss(data = mx.sym.nansum(mx.sym.log(policySM + 1e-7) * policySM),
+                                      name = 'entropyLoss')
+
         ## group everything to obtain the final symbol
-        result = mx.sym.Group([policyOutput, policyLossTotal, valueOutput, valueLoss])
+        result = mx.sym.Group([policyOutput, policyLoss, valueOutput, valueLoss, entropyLoss])
         return result
         
     @staticmethod
@@ -181,9 +182,15 @@ class a3cModule(moduleExtensions):
         """
         return self.get_outputs()[3]
     
+    def getEntropyLoss(self):
+        """
+        returns the entropy regularization loss
+        """
+        return self.get_outputs()[4]
+    
     def getLoss(self):
         """
         returns the total loss
         """
-        return self.getValueLoss() + self.getPolicyLoss()
+        return self.getValueLoss() + self.getPolicyLoss() + self.getEntropyLoss()
                                             

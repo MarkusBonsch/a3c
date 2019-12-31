@@ -62,7 +62,15 @@ class worker(threading.Thread):
         score = -999
         if self.environment.isDone():
             score = self.environment.getScore()
-        tmp = {'workerId': self.id, 'step':self.nSteps, 'gamesFinished': self.gamesPlayed + 1, 'loss': self.meanLoss, 'score': score}
+        tmp = {'workerId': self.id, 
+               'step':self.nSteps,
+               'updateSteps': self.updateSteps,
+               'gamesFinished': self.gamesPlayed + 1, 
+               'loss': self.meanLoss['total'], 
+               'lossPolicy': self.meanLoss['policy'],
+               'lossValue': self.meanLoss['value'],
+               'lossEntropy': self.meanLoss['entropy'],
+               'score': score}
         if verbose: 
             print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'])
         return tmp
@@ -117,9 +125,9 @@ class worker(threading.Thread):
                 
                 if self.nSteps%self.updateFrequency == 0 or self.environment.isDone():
                 ## we are updating!
-                    updateSteps = self.nSteps%self.updateFrequency
-                    if updateSteps == 0:
-                        updateSteps = self.updateFrequency
+                    self.updateSteps = self.nSteps%self.updateFrequency
+                    if self.updateSteps == 0:
+                        self.updateSteps = self.updateFrequency
                     if self.verbose:
                         print "Worker{0}; game {1}; step {2}; updateSteps {3}!".format(self.id, self.gamesPlayed + 1, self.nSteps, updateSteps)
                         print '\npolicy scores:'
@@ -138,7 +146,7 @@ class worker(threading.Thread):
                       self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
                                           is_train=True)
                       discountedReward = self.module.getValue()
-                    for t in reversed(range(updateSteps)):
+                    for t in reversed(range(self.updateSteps)):
                     ## loop over all memory to do the update.
                         ## update reward
                         discountedReward = (self.rewardDiscount * discountedReward
@@ -152,8 +160,11 @@ class worker(threading.Thread):
                                                                           label = [discountedReward, advantages]),
                                             is_train=True)
                         self.meanLoss['total'] += self.module.getLoss()
+                        self.meanLoss['policy'] += self.module.getPolicyLoss()
+                        self.meanLoss['value'] += self.module.getValueLoss()
+                        self.meanLoss['entropy'] += self.module.getEntropyLoss()
                         self.module.backward() ## gradreq is add, so gradients add up              
-                    self.meanLoss = float((self.meanLoss / updateSteps).asnumpy())
+                    self.meanLoss = {k: float((v / self.updateSteps).asnumpy()) for k,v in self.meanLoss.items()}
                     ## send gradients to mainThread
                     self.mainThread.module.copyGradients(fromModule = self.module, clip = self.mainThread.cfg['clip'])
                     ## perform update on mainThread
@@ -161,6 +172,9 @@ class worker(threading.Thread):
                     ## get new parameters from mainThread
                     self.module.copyParams(fromModule = self.mainThread.module)
                         
+                    ## store performance indicators after game is finished
+                    tmp = self.getPerformanceIndicators( verbose=True)
+                    self.mainThread.log[self.id].append(tmp)
                     self.collectDiagnosticInfo()
                     ## clear local gradients.
                     self.module.clearGradients()
@@ -170,10 +184,6 @@ class worker(threading.Thread):
                     self.states      = []
                     self.policies    = []
             
-            ## store performance indicators after game is finished
-            tmp = self.getPerformanceIndicators( verbose=True)
-            self.mainThread.log[self.id].append(tmp)
-                
             self.gamesPlayed += 1
             self.nSteps = 0
         ## send extendedLog to mainThread after work is finished
