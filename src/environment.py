@@ -51,9 +51,9 @@ class environment:
         raise NotImplementedError("Please overload isDone method when implementing environment.")   
     
     @abstractmethod
-    def getRewards(self):    
+    def getLastReward(self):    
         """
-        Returns a vector with rewards for all actions
+        Returns the reward of the last executed action
         """
         raise NotImplementedError("Please overload getRewards method when implementing environment.")    
     

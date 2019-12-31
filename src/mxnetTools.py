@@ -6,6 +6,7 @@ Created on Sun Dec 23 11:52:30 2018
 """
 
 import mxnet as mx
+import threading
 
 class moduleExtensions(mx.mod.Module):
     """ 
@@ -13,7 +14,20 @@ class moduleExtensions(mx.mod.Module):
     """
     def __init__(self, symbol, data_names, label_names, **kwargs):
         super(moduleExtensions, self).__init__(symbol, data_names, label_names, **kwargs)
+        self.lock = threading.Lock()
     
+    def getGradientsNumpy(self):
+        """
+        Returns a list with all gradients as numpy arrays
+        """
+        out = []
+        for exe in self._exec_group.grad_arrays:
+            for g in exe:
+                tmp = mx.nd.zeros_like(g)
+                g.copyto(tmp)
+                out.append(tmp.asnumpy())
+        return(out)
+        
     def clearGradients(self):
         """
         resets all gradients of a module's executor to 0
@@ -27,18 +41,23 @@ class moduleExtensions(mx.mod.Module):
         Performs an update of the network parameters given the gradients.
         Clears the gradients afterwards
         """
-        self.update()
-        self.clearGradients()
+        with self.lock:
+            self.update()
+            self.clearGradients()
     
-    def copyGradients(self, fromModule):
+    def copyGradients(self, fromModule, clip = None):
         """
         Copies the gradients from fromModule to self
         Args:
             fromModule (mx.mod.Module): gradients will be copied from this module.
-        """        
-        for i, valI in enumerate(fromModule._exec_group.grad_arrays):
-            for g, valG  in enumerate(valI):
-                valG.copyto(self._exec_group.grad_arrays[i][g])
+            clip (float): the gradients will be clipped to range [-clip, clip]
+        """   
+        with self.lock:
+            for i, valI in enumerate(fromModule._exec_group.grad_arrays):
+                for g, valG  in enumerate(valI):
+                    valG.copyto(self._exec_group.grad_arrays[i][g])
+                    if clip is not None:
+                        self._exec_group.grad_arrays[i][g].clip(a_min = -clip, a_max = clip)
                 
     def copyParams(self, fromModule):
         """
@@ -46,8 +65,9 @@ class moduleExtensions(mx.mod.Module):
         Args:
             fromModule (mx.mod.Module): Parameters will be copied from this module.
         """
-        params = fromModule.get_params()
-        self.set_params(arg_params = params[0], aux_params = params[1])
+        with self.lock:
+            params = fromModule.get_params()
+            self.set_params(arg_params = params[0], aux_params = params[1])
         
 
 class mxnetTools:
@@ -71,7 +91,7 @@ class mxnetTools:
         ## need to compute value and loss seperately in order to retrieve loss afterwards
         valueLayer = mx.sym.FullyConnected(data = symbol, num_hidden = 1, name = 'valueLayer')
         valueLabel = mx.sym.Variable('valueLabel')
-        valueLoss  = mx.sym.MakeLoss(data  = mx.sym.nansum((valueLayer - valueLabel)**2), 
+        valueLoss  = mx.sym.MakeLoss(data  = valueLossScale * mx.sym.nansum((valueLabel - valueLayer)**2), 
                                      name  = 'valueLoss')
         valueOutput = mx.sym.BlockGrad(valueLayer,
                                        name = 'valueOutput')
@@ -84,10 +104,10 @@ class mxnetTools:
         ## policy loss needs to be constructed by hand.
         advantageLabel = mx.sym.Variable('advantageLabel')        
         policySM = mx.sym.softmax(policyLayer)
-        policyLoss = mx.sym.nansum(-mx.sym.log(policySM + 1e-7) * advantageLabel)
+        policyLoss = -mx.sym.nansum(mx.sym.log(policySM + 1e-7) * advantageLabel)
         ## entropy loss
         entropyLoss = mx.sym.nansum(mx.sym.log(policySM + 1e-7) * policySM)
-        policyLossTotal = mx.sym.MakeLoss(1 / valueLossScale * (policyLoss + entropyLossScale * entropyLoss),
+        policyLossTotal = mx.sym.MakeLoss(policyLoss + entropyLossScale * entropyLoss,
                                           name = 'policyLoss')
         ## group everything to obtain the final symbol
         result = mx.sym.Group([policyOutput, policyLossTotal, valueOutput, valueLoss])

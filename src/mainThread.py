@@ -9,9 +9,11 @@ from mxnetTools import a3cModule
 from worker import worker
 import yaml
 import pandas as pd
+import numpy as np
 import os
 import plotly.graph_objs as go
 import plotlyInterface as pi
+import pdb
 
 class mainThread:
     """
@@ -28,22 +30,25 @@ class mainThread:
     
     A log, essentially a list where the workers can enter train metrics
     """    
-    def __init__(self, symbol, environment, configFile, verbose = False):
+    def __init__(self, symbol, envMaker, configFile, verbose = False):
         """
         Sets up a parameter server accorfing to a config.
         Args:
             symbol (mx.symbol): the neural network symbol without the output layer. 
                                 The a3c output layer is added here.                                
                                 Input layer must be named 'data'
-            environment(of class environment): the game environment.
+            envMAker(function): creates the game environment.
             configFile(string): path to the config file
         """
         self.log = []
+        self.extendedLog = []
+        self.gradients = []
         self.readConfig(configFile)
-        ## get the number of policy options in the game
-        self.environment = environment
+        self.envMaker = envMaker
+        self.environment = self.envMaker()
         self.environment.reset() ## initialize to start
-        self.nPolicy = self.environment.getRewards().size
+        ## get the number of policy options in the game
+        self.nPolicy = self.environment.getValidActions().size
         
         ## get the input dimension of the game
         self.inputDim = self.environment.state.size
@@ -89,22 +94,44 @@ class mainThread:
             
         ## transform the log into nice pandas data frames
         self.log = map(pd.DataFrame,self.log)
+        self.log = pd.concat(self.log)
+        self.extendedLog = map(pd.DataFrame,self.extendedLog)
+        self.extendedLog = pd.concat(self.extendedLog)
         
-    def getPerformancePlots(self, dirname = 'mainThreadPerformance'):
+    def getPerformancePlots(self, dirname = 'mainThreadPerformance', overwrite = False):
         """
         Produces some plots with scores
             Args: 
                 dirname (str): the output folder        
+                overwrite (Bool): whether to overwrite an existing folder
         """
-        os.mkdir(dirname)
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+        elif not overwrite:
+            raise IOError("Directory {0} already exists!".format(dirname))
+            
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[self.log['workerId'] == wId]
+            thisData.sort_values(['gamesFinished'])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['loss'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wId)))      
+        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'losses.html'))
         
         data = []
-        for wData in self.log:
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[self.log['workerId'] == wId]
+            thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
-                        x = wData['gamesFinished'],
-                        y = wData['score'],
+                        x = thisData['gamesFinished'],
+                        y = thisData['score'],
                         mode = 'lines+markers',
-                        name = "worker {0}".format(wData.loc[0,'workerId'])))      
+                        name = "worker {0}".format(wId)))        
         
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'scores.html'))

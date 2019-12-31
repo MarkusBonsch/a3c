@@ -10,6 +10,7 @@ from mxnetTools import mxnetTools as mxT
 import mxnet as mx
 import copy
 import pdb
+import numpy as np
 
 class worker(threading.Thread):
     """
@@ -29,19 +30,26 @@ class worker(threading.Thread):
         self.id = len(self.mainThread.log)
         ## initialize log
         self.mainThread.log.append([])
+        self.extendedLog = []
+        self.initialState = 0
+        self.paramMean = 0
+        self.gradients = []
         ## setup the local module. Optimizer doesn't matter since updates are performed by mainThread
         self.module = a3cModule(symbol   = self.mainThread.symbol, 
                                 inputDim = self.mainThread.inputDim)
         ## own copy of game environment
-        self.environment = copy.deepcopy(self.mainThread.environment)
+        self.environment = self.mainThread.envMaker()
         self.updateFrequency = self.mainThread.cfg['updateFrequency']
         self.nGames = self.mainThread.cfg['nGames']
         self.gamesPlayed = 0
         self.nSteps = 0
-        self.meanLoss = 0
+        self.meanLoss = {'total': 0, 'policy': 0, 'value': 0, 'entropy': 0}
         self.rewardDiscount = self.mainThread.cfg['rewardDiscount']
-        self.lock = threading.Lock()
         self.verbose = mainThread.verbose
+        self.rewards     = []
+        self.values      = []
+        self.states      = []
+        self.policies    = []
     
     def getPerformanceIndicators(self, verbose = True):
         """
@@ -59,41 +67,54 @@ class worker(threading.Thread):
             print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'])
         return tmp
         
+    def collectDiagnosticInfo(self):
+        """
+        adds gradients, actions, etc for diagnostic info at update time to extended log
+        """
+        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'actions': [int(x.asnumpy()) for x in self.policies], 'initialState': self.initialState, 'paramMean': self.paramMean}
+        self.extendedLog.append(actions)
+#        gradients = {'workerId': self.id, 'gradients': self.module.getGradientsNumpy()}
+#        self.gradients.append(gradients)
+#        
     def run(self):
         """
         Do the actual training
         """
         print "Worker{0} started!".format(self.id)
-        rewards     = []
-        values      = []
-        states      = []
-        policies    = []
         while(self.gamesPlayed < self.nGames):
         ## loop over the games            
-            self.environment.reset() ## start a new game
+            ## start a new game
+            self.environment.reset()
+            ## store initial state for diagnostic info
+            self.initialState = self.environment.state
+            ## check for model params by calculating the mean of all params
+            params = self.module.get_params()[0]
+            paramMeans = {k: v.asnumpy().mean() for k,v in params.items()}
+            self.paramMean = np.mean(paramMeans.values())
             while(not self.environment.isDone()):
                 self.nSteps += 1
-                states.append(mx.nd.array(self.environment.getState()))                 
+                self.states.append(mx.nd.array(self.environment.getState()))                 
                 ## do the forward pass for policy and value determination. No label known yet.
                 self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
                                     is_train=True)
                 ## store policy. Only validActions allowed. Invalid actions are set to prob 0.
                 allowedPolicies = mx.nd.zeros_like(self.module.getPolicy())
-                allowedPolicies[0, self.environment.getValidActions()] = self.module.getPolicy()[0,self.environment.getValidActions()]
+                validIdx = np.where(self.environment.getValidActions())[0]
+                allowedPolicies[0, validIdx] = self.module.getPolicy()[0,validIdx]
                 if allowedPolicies.sum() == 0:
                     ## all valid actions have score 0. Assign equal scores
-                    allowedPolicies[0, self.environment.getValidActions()] = 1 / float(self.environment.getValidActions().size)
+                    allowedPolicies[0, validIdx] = 1.0 / float(validIdx.size)
                 else:
                     ## renormalize to 1
                     allowedPolicies = allowedPolicies / allowedPolicies.sum()
-                
-                policies.append(mx.nd.sample_multinomial(data  = allowedPolicies,
-                                                         shape = 1))
-                ## store reward and value as mx.nd.arrays
-                rewards.append(mx.nd.array(self.environment.getRewards())[policies[-1]])
-                values.append(self.module.getValue())
+                self.policies.append(mx.nd.sample_multinomial(data  = allowedPolicies,
+                                                              shape = 1))
                 ## apply action on state. Important before update
-                self.environment.update(policies[-1].asnumpy())
+                self.environment.update(self.policies[-1].asnumpy())
+                ## store reward and value as mx.nd.arrays
+                self.rewards.append(mx.nd.array([[self.environment.getLastReward()]]))
+                self.values.append(self.module.getValue())
+                
                 if self.nSteps%self.updateFrequency == 0 or self.environment.isDone():
                 ## we are updating!
                     updateSteps = self.nSteps%self.updateFrequency
@@ -101,14 +122,14 @@ class worker(threading.Thread):
                         updateSteps = self.updateFrequency
                     if self.verbose:
                         print "Worker{0}; game {1}; step {2}; updateSteps {3}!".format(self.id, self.gamesPlayed + 1, self.nSteps, updateSteps)
-#                        print '\npolicy scores:'
-#                        print self.module.getPolicy()
+                        print '\npolicy scores:'
+                        print self.module.getPolicy()
 #                        print 'validActions:'
 #                        print self.environment.getValidActions()
-#                        print 'Allowed policies:'                    
-#                        print allowedPolicies
+                        print 'Allowed policies:'                    
+                        print allowedPolicies
                         print '\n'
-                    self.meanLoss = 0
+                    self.meanLoss = {k:0 for k,v in self.meanLoss.items()}
                     if self.environment.isDone():
                         discountedReward = 0
                     else:
@@ -121,33 +142,33 @@ class worker(threading.Thread):
                     ## loop over all memory to do the update.
                         ## update reward
                         discountedReward = (self.rewardDiscount * discountedReward
-                                            + rewards[t])
+                                            + self.rewards[t])
                         ## determine advantages. All are set to 0, except the one 
                         ## for the chosen policy
                         advantages = mx.nd.zeros(shape = self.module.getPolicy().shape)
-                        advantages[0,policies[t]] = discountedReward - values[t]
+                        advantages[0,self.policies[t]] = discountedReward - self.values[t]
                         ## do forward and backward pass to accumulate gradients
-                        self.module.forward(data_batch=mxT.state2a3cInput(state = states[t],
+                        self.module.forward(data_batch=mxT.state2a3cInput(state = self.states[t],
                                                                           label = [discountedReward, advantages]),
                                             is_train=True)
-                        self.meanLoss += self.module.getLoss()
+                        self.meanLoss['total'] += self.module.getLoss()
                         self.module.backward() ## gradreq is add, so gradients add up              
                     self.meanLoss = float((self.meanLoss / updateSteps).asnumpy())
-                    ## be sure to synchronize before actual update                        
-                    with self.lock:                                   
-                        ## send gradients to mainThread
-                        self.mainThread.module.copyGradients(fromModule = self.module)
-                        ## perform update on mainThread
-                        self.mainThread.module.updateParams() ## gradients on mainThread get cleared automatically
-                        ## get new parameters from mainThread
-                        self.module.copyParams(fromModule = self.mainThread.module)
+                    ## send gradients to mainThread
+                    self.mainThread.module.copyGradients(fromModule = self.module, clip = self.mainThread.cfg['clip'])
+                    ## perform update on mainThread
+                    self.mainThread.module.updateParams() ## gradients on mainThread get cleared automatically
+                    ## get new parameters from mainThread
+                    self.module.copyParams(fromModule = self.mainThread.module)
+                        
+                    self.collectDiagnosticInfo()
                     ## clear local gradients.
                     self.module.clearGradients()
                     ## clear memory
-                    rewards     = []
-                    values      = []
-                    states      = []
-                    policies    = []
+                    self.rewards     = []
+                    self.values      = []
+                    self.states      = []
+                    self.policies    = []
             
             ## store performance indicators after game is finished
             tmp = self.getPerformanceIndicators( verbose=True)
@@ -155,7 +176,9 @@ class worker(threading.Thread):
                 
             self.gamesPlayed += 1
             self.nSteps = 0
-                
+        ## send extendedLog to mainThread after work is finished
+        self.mainThread.extendedLog.append(self.extendedLog)
+        self.mainThread.gradients. append(self.gradients)
                 
         
         
