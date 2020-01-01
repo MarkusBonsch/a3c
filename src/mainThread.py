@@ -112,7 +112,7 @@ class mainThread:
             
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[self.log['workerId'] == wId]
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
@@ -125,7 +125,46 @@ class mainThread:
         
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[self.log['workerId'] == wId]
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+            thisData.sort_values(['gamesFinished'])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['lossValue'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wId)))      
+        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'lossesValue.html'))
+        
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+            thisData.sort_values(['gamesFinished'])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['lossPolicy'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wId)))      
+        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'lossesPolicy.html'))
+        
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+            thisData.sort_values(['gamesFinished'])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['lossEntropy'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wId)))      
+        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'lossesEntropy.html'))
+        
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],

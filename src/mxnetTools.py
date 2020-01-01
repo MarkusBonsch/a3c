@@ -91,7 +91,7 @@ class mxnetTools:
         ## need to compute value and loss seperately in order to retrieve loss afterwards
         valueLayer = mx.sym.FullyConnected(data = symbol, num_hidden = 1, name = 'valueLayer')
         valueLabel = mx.sym.Variable('valueLabel')
-        valueLoss  = mx.sym.MakeLoss(data  = valueLossScale * mx.sym.nansum((valueLabel - valueLayer)**2), 
+        valueLoss  = mx.sym.MakeLoss(data  = valueLossScale * mx.sym.nansum((valueLabel - valueLayer )**2), 
                                      name  = 'valueLoss')
         valueOutput = mx.sym.BlockGrad(valueLayer,
                                        name = 'valueOutput')
@@ -107,7 +107,7 @@ class mxnetTools:
         policyLoss = mx.sym.MakeLoss(data = -mx.sym.nansum(mx.sym.log(policySM + 1e-7) * advantageLabel),
                                      name = 'policyLoss')
         ## entropy loss
-        entropyLoss = mx.sym.MakeLoss(data = mx.sym.nansum(mx.sym.log(policySM + 1e-7) * policySM),
+        entropyLoss = mx.sym.MakeLoss(data = entropyLossScale * mx.sym.nansum(mx.sym.log(policySM + 1e-7) * policySM),
                                       name = 'entropyLoss')
 
         ## group everything to obtain the final symbol

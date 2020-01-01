@@ -17,11 +17,11 @@ from mainThread import mainThread as mT
 
 
 tmp = mx.sym.Variable('data')
-tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 128)
+tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 32)
 #tmp = mx.sym.Dropout(data = tmp, p = 0.2)
 tmp = mx.sym.Activation(data = tmp, act_type = 'relu')
-tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 128)
-tmp = mx.sym.Activation(data = tmp, act_type = 'relu')
+#tmp = mx.sym.FullyConnected(data = tmp, num_hidden = 128)
+#tmp = mx.sym.Activation(data = tmp, act_type = 'relu')
 
 def cartpoleMaker():
     return cartpole_env()
@@ -31,7 +31,7 @@ mainThread = mT(tmp, cartpoleMaker, 'a3c/test/cartpole/cartpole.cfg', verbose = 
 
 mainThread.run()
 
-mainThread.module.save_checkpoint("testModel", 1, save_optimizer_states=True)
+mainThread.module.save_checkpoint("teresasModel", 1, save_optimizer_states=True)
 
 #after = mainThread.module.get_params()[0]['fullyconnected0_weight'].asnumpy()
 

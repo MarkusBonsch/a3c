@@ -142,7 +142,7 @@ class worker(threading.Thread):
                         discountedReward = 0
                     else:
                       ## get value of new state after policy update as
-                      ## future reweard estimate
+                      ## future reward estimate
                       self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
                                           is_train=True)
                       discountedReward = self.module.getValue()
