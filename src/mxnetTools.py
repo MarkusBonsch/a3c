@@ -91,7 +91,7 @@ class mxnetTools:
         ## need to compute value and loss seperately in order to retrieve loss afterwards
         valueLayer = mx.sym.FullyConnected(data = symbol, num_hidden = 1, name = 'valueLayer')
         valueLabel = mx.sym.Variable('valueLabel')
-        valueLoss  = mx.sym.MakeLoss(data  = valueLossScale * mx.sym.nansum((valueLabel - valueLayer )**2), 
+        valueLoss  = mx.sym.MakeLoss(data  = valueLossScale * mx.sym.nansum(((valueLabel - valueLayer )/ (valueLabel + valueLayer ))**2), 
                                      name  = 'valueLoss')
         valueOutput = mx.sym.BlockGrad(valueLayer,
                                        name = 'valueOutput')

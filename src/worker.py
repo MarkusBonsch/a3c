@@ -50,6 +50,50 @@ class worker(threading.Thread):
         self.values      = []
         self.states      = []
         self.policies    = []
+        
+    def getDiscountedReward(self, rewards, values, lastValue, t, ga, la):
+        """
+        calculates the reweard
+        Args:
+            rewards (list): rewards of all timesteps after t
+            values(list):   values of all timesteps after t
+            lastValue(float): value of step after last action
+            t(int): timestep. starts with 0
+            ga, la: hyperparameters
+        Returns:
+            discounted reward
+        """
+        timeLeft = len(rewards) - t
+        rewards.append(lastValue)
+        R = rewards[-1]
+        for n in range(timeLeft):
+            R = ga * R + rewards[-(n+2)]
+
+        return(R)
+        
+#    def getDiscountedReward(self, rewards, values, lastValue, t, ga, la):
+#        """
+#        calculates the advantage according to generalized advantage estimation
+#        Args:
+#            rewards (list): rewards of all timesteps after t
+#            values(list):   values of all timesteps after t
+#            lastValue(float): value of step after last action
+#            t(int): timestep. starts with 0
+#            ga, la: hyperparameters
+#        Returns:
+#            discounted reward
+#        """
+#        timeLeft = len(rewards) - t
+#        values.append(lastValue)
+#        R = 0
+#        for n in range(timeLeft):
+#            R_n = ga**(n+1) * values[t + n+1]
+#            for l in reversed(range(n+1)):
+#                R_n = R_n + ga**l * rewards[t + l]
+#            R = R + la**n * R_n
+#        R = R * (1-la)
+#        return(R)
+#            
     
     def getPerformanceIndicators(self, verbose = True):
         """
@@ -84,6 +128,7 @@ class worker(threading.Thread):
 #        gradients = {'workerId': self.id, 'gradients': self.module.getGradientsNumpy()}
 #        self.gradients.append(gradients)
 #        
+    
     def run(self):
         """
         Do the actual training
@@ -104,7 +149,7 @@ class worker(threading.Thread):
                 self.states.append(mx.nd.array(self.environment.getState()))                 
                 ## do the forward pass for policy and value determination. No label known yet.
                 self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
-                                    is_train=True)
+                                    is_train=False)
                 ## store policy. Only validActions allowed. Invalid actions are set to prob 0.
                 allowedPolicies = mx.nd.zeros_like(self.module.getPolicy())
                 validIdx = np.where(self.environment.getValidActions())[0]
@@ -139,22 +184,25 @@ class worker(threading.Thread):
                         print '\n'
                     self.meanLoss = {k:0 for k,v in self.meanLoss.items()}
                     if self.environment.isDone():
-                        discountedReward = 0
+                        lastValue = 0
                     else:
                       ## get value of new state after policy update as
                       ## future reward estimate
                       self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
-                                          is_train=True)
-                      discountedReward = self.module.getValue()
+                                          is_train=False)
+                      lastValue = self.module.getValue()
                     for t in reversed(range(self.updateSteps)):
                     ## loop over all memory to do the update.
-                        ## update reward
-                        discountedReward = (self.rewardDiscount * discountedReward
-                                            + self.rewards[t])
+                        ## determine discounted reward
+                        discountedReward = self.getDiscountedReward(self.rewards, 
+                                                                    self.values,
+                                                                    lastValue, t, 
+                                                                    self.rewardDiscount, 
+                                                                    self.rewardDiscount)
                         ## determine advantages. All are set to 0, except the one 
                         ## for the chosen policy
                         advantages = mx.nd.zeros(shape = self.module.getPolicy().shape)
-                        advantages[0,self.policies[t]] = discountedReward - self.values[t]
+                        advantages[0,self.policies[t]] = (discountedReward - self.values[t]) / (discountedReward + self.values[t])
                         ## do forward and backward pass to accumulate gradients
                         self.module.forward(data_batch=mxT.state2a3cInput(state = self.states[t],
                                                                           label = [discountedReward, advantages]),

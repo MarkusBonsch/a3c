@@ -31,7 +31,7 @@ mainThread = mT(tmp, cartpoleMaker, 'a3c/test/cartpole/cartpole.cfg', verbose = 
 
 mainThread.run()
 
-mainThread.module.save_checkpoint("teresasModel", 1, save_optimizer_states=True)
+mainThread.module.save_checkpoint("teresasModel_GAE", 1, save_optimizer_states=True)
 
 #after = mainThread.module.get_params()[0]['fullyconnected0_weight'].asnumpy()
 
