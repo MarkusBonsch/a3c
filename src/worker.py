@@ -5,9 +5,8 @@ Created on Sun Dec 23 11:28:01 2018
 @author: markus
 """
 import threading
-from mxnetTools import a3cModule
-from mxnetTools import mxnetTools as mxT
 import mxnet as mx
+import mxnetTools as mxT
 import copy
 import pdb
 import numpy as np
@@ -34,11 +33,19 @@ class worker(threading.Thread):
         self.initialState = 0
         self.paramMean = 0
         self.gradients = []
-        ## setup the local module. Optimizer doesn't matter since updates are performed by mainThread
-        self.module = a3cModule(symbol   = self.mainThread.symbol, 
-                                inputDim = self.mainThread.inputDim)
         ## own copy of game environment
         self.environment = self.mainThread.envMaker()
+        ## setup the local network.
+        self.net = self.mainThread.netMaker()
+        ## make sure gradients are added up
+        self.net.set_grad_req("add")
+        self.net.hybridize()
+        ## one forward pass to really initialize the parameters
+        self.net(self.environment.getNetState())
+
+        ## make sure to initialize with mainThread PArameters
+        self.net.copyParams(fromNet = self.mainThread.net)
+
         self.updateFrequency = self.mainThread.cfg['updateFrequency']
         self.nGames = self.mainThread.cfg['nGames']
         self.gamesPlayed = 0
@@ -53,7 +60,7 @@ class worker(threading.Thread):
         
     def getDiscountedReward(self, rewards, values, lastValue, t, ga, la):
         """
-        calculates the reweard
+        calculates the reward
         Args:
             rewards (list): rewards of all timesteps after t
             values(list):   values of all timesteps after t
@@ -141,19 +148,17 @@ class worker(threading.Thread):
             ## store initial state for diagnostic info
             self.initialState = self.environment.state
             ## check for model params by calculating the mean of all params
-            params = self.module.get_params()[0]
-            paramMeans = {k: v.asnumpy().mean() for k,v in params.items()}
+            paramMeans = {k: v.data().asnumpy().mean() for k,v in self.net.collect_params().items()}
             self.paramMean = np.mean(paramMeans.values())
             while(not self.environment.isDone()):
                 self.nSteps += 1
-                self.states.append(mx.nd.array(self.environment.getState()))                 
+                self.states.append(mx.nd.array(self.environment.getNetState()))                 
                 ## do the forward pass for policy and value determination. No label known yet.
-                self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
-                                    is_train=False)
+                value, policy = self.net(self.environment.getNetState())
                 ## store policy. Only validActions allowed. Invalid actions are set to prob 0.
-                allowedPolicies = mx.nd.zeros_like(self.module.getPolicy())
+                allowedPolicies = mx.nd.zeros_like(policy)
                 validIdx = np.where(self.environment.getValidActions())[0]
-                allowedPolicies[0, validIdx] = self.module.getPolicy()[0,validIdx]
+                allowedPolicies[0, validIdx] = policy[0,validIdx]
                 if allowedPolicies.sum() == 0:
                     ## all valid actions have score 0. Assign equal scores
                     allowedPolicies[0, validIdx] = 1.0 / float(validIdx.size)
@@ -166,7 +171,7 @@ class worker(threading.Thread):
                 self.environment.update(self.policies[-1].asnumpy())
                 ## store reward and value as mx.nd.arrays
                 self.rewards.append(mx.nd.array([[self.environment.getLastReward()]]))
-                self.values.append(self.module.getValue())
+                self.values.append(value)
                 
                 if self.nSteps%self.updateFrequency == 0 or self.environment.isDone():
                 ## we are updating!
@@ -176,7 +181,7 @@ class worker(threading.Thread):
                     if self.verbose:
                         print "Worker{0}; game {1}; step {2}; updateSteps {3}!".format(self.id, self.gamesPlayed + 1, self.nSteps, updateSteps)
                         print '\npolicy scores:'
-                        print self.module.getPolicy()
+                        print policy
 #                        print 'validActions:'
 #                        print self.environment.getValidActions()
                         print 'Allowed policies:'                    
@@ -188,9 +193,7 @@ class worker(threading.Thread):
                     else:
                       ## get value of new state after policy update as
                       ## future reward estimate
-                      self.module.forward(data_batch=mxT.state2a3cInput(self.environment.getState()),
-                                          is_train=False)
-                      lastValue = self.module.getValue()
+                      lastValue, _ = self.net(self.environment.getNetState())
                     for t in reversed(range(self.updateSteps)):
                     ## loop over all memory to do the update.
                         ## determine discounted reward
@@ -201,31 +204,32 @@ class worker(threading.Thread):
                                                                     self.rewardDiscount)
                         ## determine advantages. All are set to 0, except the one 
                         ## for the chosen policy
-                        advantages = mx.nd.zeros(shape = self.module.getPolicy().shape)
+                        advantages = mx.nd.zeros(shape = policy.shape)
                         advantages[0,self.policies[t]] = (discountedReward - self.values[t]) / (discountedReward + self.values[t])
                         ## do forward and backward pass to accumulate gradients
-                        self.module.forward(data_batch=mxT.state2a3cInput(state = self.states[t],
-                                                                          label = [discountedReward, advantages]),
-                                            is_train=True)
-                        self.meanLoss['total'] += self.module.getLoss()
-                        self.meanLoss['policy'] += self.module.getPolicyLoss()
-                        self.meanLoss['value'] += self.module.getValueLoss()
-                        self.meanLoss['entropy'] += self.module.getEntropyLoss()
-                        self.module.backward() ## gradreq is add, so gradients add up              
+                        with mx.autograd.record(): ## per default in "is_train" mode
+                            value, policy = self.net(self.states[t])
+                            loss = self.net.lossFct[0][0](value, policy, discountedReward, advantages)
+                        loss.backward() ## grd_req is add, so gradients are accumulated       
+                        
+                        self.meanLoss['total'] += self.net.lossFct[0][0].getLoss()
+                        self.meanLoss['policy'] += self.net.lossFct[0][0].getPolicyLoss()
+                        self.meanLoss['value'] += self.net.lossFct[0][0].getValueLoss()
+                        self.meanLoss['entropy'] += self.net.lossFct[0][0].getEntropyLoss()
+                        
                     self.meanLoss = {k: float((v / self.updateSteps).asnumpy()) for k,v in self.meanLoss.items()}
-                    ## send gradients to mainThread
-                    self.mainThread.module.copyGradients(fromModule = self.module, clip = self.mainThread.cfg['clip'])
-                    ## perform update on mainThread
-                    self.mainThread.module.updateParams() ## gradients on mainThread get cleared automatically
+                    ## send gradients to mainThread and do the update.
+                    ## gradients on mainThread get cleared automatically
+                    self.mainThread.net.updateFromWorker(fromNet = self.net, dummyData = self.environment.getNetState())
                     ## get new parameters from mainThread
-                    self.module.copyParams(fromModule = self.mainThread.module)
+                    self.net.copyParams(fromNet = self.mainThread.net)
                         
                     ## store performance indicators after game is finished
                     tmp = self.getPerformanceIndicators( verbose=True)
                     self.mainThread.log[self.id].append(tmp)
                     self.collectDiagnosticInfo()
                     ## clear local gradients.
-                    self.module.clearGradients()
+                    self.net.clearGradients()
                     ## clear memory
                     self.rewards     = []
                     self.values      = []

@@ -16,11 +16,18 @@ class environment:
     __metaclass__ = ABCMeta
     
     @abstractmethod
-    def getState(self):    
+    def getRawState(self):    
         """
-        Returns the state as numpy array
+        Returns the unprocessed state as numpy array
         """
-        raise NotImplementedError("Please overload getState method when implementing environment.")    
+        raise NotImplementedError("Please overload getRawState method when implementing environment.")    
+
+    @abstractmethod
+    def getNetState(self):    
+        """
+        Returns the state as required as input for the a3cNet
+        """
+        raise NotImplementedError("Please overload getNetState method when implementing environment.")    
 
     @abstractmethod
     def getValidActions(self):    

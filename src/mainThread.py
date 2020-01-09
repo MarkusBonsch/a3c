@@ -4,8 +4,6 @@ Created on Sun Dec 23 11:28:01 2018
 
 @author: markus
 """
-from mxnetTools import mxnetTools as mxT
-from mxnetTools import a3cModule
 from worker import worker
 import yaml
 import pandas as pd
@@ -21,22 +19,22 @@ class mainThread:
     It sets up the model, the workers, and the optimizer.
     It contains:
     
-    A module (identical to worker modules)
+    A network (identical to worker modules)
     that is used to do the updates. Workflow is as follows:
-    - Worker gets parameters from paramServer Module
-    - Worker computes gradients and pushes them to parameter server module
-    - Parameter server module performs update
+    - Worker gets parameters from paramServer Network
+    - Worker computes gradients and pushes them to parameter server Network
+    - Parameter server Network performs update
     - repeat
     
     A log, essentially a list where the workers can enter train metrics
     """    
-    def __init__(self, symbol, envMaker, configFile, verbose = False):
+    def __init__(self, netMaker, envMaker, configFile, verbose = False):
         """
         Sets up a parameter server accorfing to a config.
         Args:
-            symbol (mx.symbol): the neural network symbol without the output layer. 
-                                The a3c output layer is added here.                                
-                                Input layer must be named 'data'
+            netMaker (function): a function returning the neural network
+                                 with initialized parameters. Must be of type a3cHybridSequential.
+                                 Last block must be a3cOutput
             envMAker(function): creates the game environment.
             configFile(string): path to the config file
         """
@@ -44,23 +42,19 @@ class mainThread:
         self.extendedLog = []
         self.gradients = []
         self.readConfig(configFile)
+        
         self.envMaker = envMaker
         self.environment = self.envMaker()
         self.environment.reset() ## initialize to start
-        ## get the number of policy options in the game
-        self.nPolicy = self.environment.getValidActions().size
         
-        ## get the input dimension of the game
-        self.inputDim = self.environment.state.size
-        
-        ## construct the final neural network symbol.     
-        self.symbol = mxT.a3cOutput(symbol, self.nPolicy)
-        
-        ## bind the module 
-        self.module = a3cModule(self.symbol, 
-                                inputDim      = self.inputDim,
-                                optimizer     = self.cfg['optimizer'],
-                                optimizerArgs = self.cfg['optimizerArgs'])
+        self.netMaker = netMaker
+        self.net = netMaker()
+        self.net.hybridize()
+        ## do one forward pass to really initialize the parameters
+        self.net(self.environment.getNetState())
+        ## the trainer updates the parameters
+        self.net.initTrainer(optimizer     = self.cfg['optimizer'],
+                             optimizerArgs = self.cfg['optimizerArgs'])
         self.verbose = verbose
         
     def readConfig(self, configFile):
@@ -71,9 +65,6 @@ class mainThread:
         """
         with open(configFile, "r") as f:
             self.cfg = yaml.load(f)
-            
-        ## convert optimizer args to the correct structure
-        self.cfg['optimizerArgs'] = tuple(self.cfg['optimizerArgs'].iteritems())
         
     def run(self):
         """
@@ -174,4 +165,26 @@ class mainThread:
         
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'scores.html'))
+        
+    def save(self, outFolder, savePlots = True, overwrite = False):
+        """ 
+        saves the model and the config and plots if required
+        Args:
+            outFolder (str): path to the target directory where files are saved.
+                           Will be created if it doesn't exist
+            savePlots (bool): if True, performancePlots are created and saved.
+            overwrite(bool): whether to overwrite dir if it exists.
+        """
+        if not os.path.exists(outFolder):
+                os.makedirs(outFolder)
+        elif not overwrite:
+                raise  IOError('Folder already exists: ' + outFolder + '. Specify overwrite = True if needed')
+        ## save model
+        self.net.save(outFolder, overwrite = True)
+        ## save config
+        with open(os.path.join(outFolder, 'config.cfg'), 'w') as outfile:
+            yaml.dump(self.cfg, outfile, default_flow_style=False)
+        if savePlots:
+            self.getPerformancePlots(os.path.join(outFolder, "plots"), overwrite = True)
+            
     

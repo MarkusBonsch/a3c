@@ -11,6 +11,7 @@ Everything around the state: reward update, etc.
 import environment as env
 import numpy as np
 import gym
+import mxnet as mx
 
 class cartpole_env(env.environment):
     """
@@ -31,11 +32,20 @@ class cartpole_env(env.environment):
         self.state = 0
         self.reset()
         
-    def getState(self):    
+    def getRawState(self):    
         """
         Returns the state as numpy array
         """
         return self.state
+        
+    def getNetState(self):
+        """
+        Returns the state as required as input for the a3cNet
+        """
+        data = mx.nd.array(self.state)
+        data = data.expand_dims(axis = 0)
+        data = data.flatten()
+        return(data)
         
     def getValidActions(self):
         """ 
