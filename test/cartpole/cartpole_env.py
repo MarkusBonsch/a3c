@@ -23,13 +23,16 @@ class cartpole_env(env.environment):
         
     """
     
-    def __init__(self):
+    def __init__(self, seqLength):
         """ 
         set up the basic environment
+        Args:
+            seqLength(int): sequence length. 0 if no rnn is present.
         """
         self.env = gym.make('CartPole-v0')
         self.validActions = np.array([True, True])
         self.state = 0
+        self.netState = [None] * seqLength
         self.reset()
         
     def getRawState(self):    
@@ -38,14 +41,24 @@ class cartpole_env(env.environment):
         """
         return self.state
         
-    def getNetState(self):
+    def raw2singleNetState(self):
         """
-        Returns the state as required as input for the a3cNet
+        converts numpy array to apropriate mxnet nd array
         """
         data = mx.nd.array(self.state)
         data = data.expand_dims(axis = 0)
         data = data.flatten()
         return(data)
+    
+    def getNetState(self):
+        """
+        Returns the state as required as input for the a3cNet
+        """
+        
+        out = mx.nd.zeros(shape = (len(self.netState),) + self.netState[0].shape)
+        for i in range(len(self.netState)):
+            out[i,:,:] = self.netState[i]
+        return out
         
     def getValidActions(self):
         """ 
@@ -58,6 +71,7 @@ class cartpole_env(env.environment):
         resets the environment to starting conditions, i.e. starts a new game
         """
         self.state = self.env.reset()
+        self.netState = [self.raw2singleNetState()] * len(self.netState)
         self.is_done = False
         self.score = 0
         self.lastReward = -np.Inf
@@ -81,6 +95,7 @@ class cartpole_env(env.environment):
         
         tmp = self.env.step(action)
         self.state = tmp[0]
+        self.netState = self.netState[:-1] + [self.raw2singleNetState()]
         self.lastReward = tmp[1]
         self.is_done = tmp[2]
         self.score += self.lastReward

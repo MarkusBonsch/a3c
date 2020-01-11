@@ -4,13 +4,34 @@ Created on Sun Dec 23 11:52:30 2018
 
 @author: markus
 """
-
+import pdb
 import mxnet as mx
 from mxnet import gluon
 import threading
 import os
 
-class a3cOutput(gluon.HybridBlock):
+class a3cBlock(gluon.HybridBlock):
+    """
+    extensions for a3c.
+    Currently just a wrapper that adds the reset() function
+    """
+    def __init__(self, block = None, **kwargs):
+        super(a3cBlock, self).__init__(**kwargs)
+        if block is not None:
+            self.block = block
+    
+    def hybrid_forward(self, F, x):
+        self.block(x) ## pass forward call to inner block
+    
+    def reset(self):
+        """
+        e.g. for resetting states
+        Needs to be overwritten on inheritance if required
+        """
+#        print("Resetting Block {0}.\n".format(self.name))
+        
+            
+class a3cOutput(a3cBlock):
     """
     a3c output layer
     with policy output (Softmax of size n_policy)
@@ -28,7 +49,7 @@ class a3cOutput(gluon.HybridBlock):
             self.valueOutput  = gluon.nn.Dense(units  = 1,
                                                prefix = "valueOutput_")
             self.policyOutput = gluon.nn.Dense(units  = n_policy,
-                                              prefix  = "policyOutput_")
+                                               prefix = "policyOutput_")
             
     
     def hybrid_forward(self, F, x):
@@ -104,13 +125,14 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
     """
     Some nice extensions for exchangeing gradients and parameters
     """
-    def __init__(self, **kwargs):
+    def __init__(self, useInitStates = False, **kwargs):
         super(a3cHybridSequential, self).__init__(**kwargs)
         self.lock = threading.Lock()
         self.trainer = None
         self.lossFct = []## list is a dirty trick to hide the loss from the 
         self.lossFct.append([]) ## forward computation of the sequential model
-        self.lossFct[0].append(a3cLoss()) 
+        self.lossFct[0].append(a3cLoss())
+        self.useInitStates = useInitStates
     
     def clearGradients(self):
         """
@@ -208,3 +230,67 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
         self.export(os.path.join(outFolder, "net"), epoch = 1)
         ## save trainer params
         self.trainer.save_states(os.path.join(outFolder, "trainer.states"))
+        
+    def reset(self):
+        """ 
+        calls the reset method of all children if they are a3cBlocks
+        """
+        def resetter(self):
+            if isinstance(self, a3cBlock):
+#                print "resetting {0}\n".format(self.name)
+                self.reset()
+        self.apply(resetter)
+        
+    def hybrid_forward(self, F, x):
+        """
+        Need to overwrite forward to make it support two parameters for a3cLSTM layers
+        """
+        for block in self._children.values():
+            if not self.useInitStates:
+                x = block(x)
+            else:
+                if isinstance(block, a3cLSTM):
+                    x = block(x, block.initStates)
+                else:
+                    x = block(x)
+        return x
+        
+class a3cLSTM(a3cBlock):
+    """
+    Wrapper for LSTM that does the following things:
+        1. Store and update initial states
+        2. Return only output for last sequence
+        3. Implement reset() method to set initial states to 0
+    """
+    def __init__(self, lstm, **kwargs):
+        """
+        Args:
+            lstm(mxnet.gluon.rnn.LSTM): the lstm layer to be wrapped
+        """
+        super(a3cLSTM,self).__init__(lstm, **kwargs)
+        self.defaultInitStates = self.block.begin_state(1,mx.symbol.zeros)
+        self.initStates = self.defaultInitStates
+        
+    def hybrid_forward(self, F, x, initStates = None):
+#        pdb.set_trace()
+        output = self.block(x, initStates)
+        if len(output) == 2:
+            states = output[1]
+            output = output[0]
+        else: ## no states are returned
+            states = None
+            output = output[0]
+        # select last element of output along sequence axis
+        seqDim = self.block._layout.find('T')
+        output = F.reverse(output,axis = seqDim)
+        output = F.slice_axis(output, axis = seqDim, begin = 0, end = 1)
+        ## save last states as initStates
+        if states is not None:
+            self.initStates = states
+        return(output)
+    
+    def reset(self):
+        """
+        resets the initStates to all 0
+        """
+        self.initStates = self.defaultInitStates

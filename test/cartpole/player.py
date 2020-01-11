@@ -16,8 +16,8 @@ import numpy as np
 import time
 
 ## load model
-net = mx.gluon.nn.SymbolBlock.imports(symbol_file = "a3c/test/cartpole/smallModel/net-symbol.json",
-                                      param_file  = "a3c/test/cartpole/smallModel/net-0001.params",
+net = mx.gluon.nn.SymbolBlock.imports(symbol_file = "a3c/test/cartpole/100Steps8Workers/net-symbol.json",
+                                      param_file  = "a3c/test/cartpole/100Steps8Workers/net-0001.params",
                                       input_names = ['data'])
 net.hybridize()
                                 
@@ -39,7 +39,9 @@ while not done:
     tmp = env.update(action)
     state = env.getNetState()
 #    done = tmp[2]
-    time.sleep(0.1)
     env.env.render()
+    if step == 300:
+        env.reset()
+        step = 0
     
     

@@ -147,6 +147,8 @@ class worker(threading.Thread):
             self.environment.reset()
             ## store initial state for diagnostic info
             self.initialState = self.environment.state
+            ## reset model (e.g. lstm initial states)
+            self.net.reset()
             ## check for model params by calculating the mean of all params
             paramMeans = {k: v.data().asnumpy().mean() for k,v in self.net.collect_params().items()}
             self.paramMean = np.mean(paramMeans.values())
