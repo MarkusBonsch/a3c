@@ -16,16 +16,17 @@ import mxnet as mx
 from mainThread import mainThread as mT
 
 def cartpoleMaker():
-    return cartpole_env(1)
+    return cartpole_env()
 
 def netMaker():
-    net = mxT.a3cHybridSequential(useInitStates= True)
-    net.add(mxT.a3cLSTM(mx.gluon.rnn.LSTM(hidden_size = 32,
-                                          prefix = "lstm_")))
+    net = mxT.a3cHybridSequential()
+    net.add(mx.gluon.rnn.LSTM(hidden_size = 32,
+                              input_size=4,
+                              prefix = "lstm_"))
     net.add(mx.gluon.nn.Activation("relu"))
-#    net.add(mx.gluon.nn.Dense(units = 32, activation = "relu", prefix = "fc_"))
     net.add(mxT.a3cOutput(n_policy = 2, prefix = ""))
-    net.initialize(init = mx.initializer.Xavier(), ctx= mx.cpu())
+    net.add()
+    net.initialize(init = mx.initializer.Xavier())
     return(net)
     
 mainThread = mT(netMaker   = netMaker , 
@@ -35,7 +36,7 @@ mainThread = mT(netMaker   = netMaker ,
 
 mainThread.run()
 
-mainThread.save("a3c/test/cartpole/LSTM1000Seq4", overwrite = False, savePlots=True)
+mainThread.save("a3c/test/cartpole/smallModel", overwrite = True, savePlots=True)
 
 #after = mainThread.module.get_params()[0]['fullyconnected0_weight'].asnumpy()
 
