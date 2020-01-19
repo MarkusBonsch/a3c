@@ -12,8 +12,9 @@ import environment as env
 import numpy as np
 import gym
 import mxnet as mx
+import cv2
 
-class cartpole_env(env.environment):
+class pong_env(env.environment):
     """
     Contains the environment state.
     Most important variables:
@@ -22,20 +23,21 @@ class cartpole_env(env.environment):
         self.isDone ## True if all seats are filled and the game is over.
         
     """
-    
-    def __init__(self, seqLength = 1, useSeqLength = False):
+    def __init__(self, seqLength, nBallsEpisode = 20,  useSeqLength = False):
         """ 
         set up the basic environment
+        actions are reduced to 3: move up, move down and wait.
         Args:
-            seqLength(int): sequence length.
-            useSeqLength (bool): whether to return full sequence or only single state.
+            nBallsEpisode (int): after how many balls does an episode end?
+            seqLength(int): sequence length. 0 if no rnn is present.
+            useSeqLength(bool): if True, getNetState returns a list, if False, a single state.
         """
-        self.env = gym.make('CartPole-v0')
-        self.validActions = np.array([True, True])
+        self.env = gym.make('Pong-v0')
+        self.validActions = np.ones(shape = (3))
         self.state = 0
-        self.netState = [None] * seqLength
         self.useSeqLength = useSeqLength
-        self.episodeLength = 5
+        self.netState = [None] * seqLength
+        self.nBallsEpisode = nBallsEpisode
         self.reset()
         
     def getRawState(self):    
@@ -48,20 +50,24 @@ class cartpole_env(env.environment):
         """
         converts numpy array to apropriate mxnet nd array
         """
-        data = mx.nd.array(self.state)
-        data = data.expand_dims(axis = 0)
-        data = data.flatten()
-        return(data)
+        state = self.state[35:209,0:159] ## crop unnecessary parts
+        state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY) ## convert to greyscale
+        state = cv2.resize(src = state, dsize = (48,48), interpolation = cv2.INTER_AREA) ## resize
+        state = np.expand_dims(state, 0)
+        state = np.expand_dims(state, 0) ## additional axes for batch and channels
+        state = mx.nd.array(state)
+        return(state)
     
     def getNetState(self):
         """
         Returns the state as required as input for the a3cNet
         """
         if not self.useSeqLength:
-            return self.netState[-1]
+            return self.netState[0]
         out = mx.nd.zeros(shape = (len(self.netState),) + self.netState[0].shape)
         for i in range(len(self.netState)):
             out[i,:,:] = self.netState[i]
+        
         return out
         
     def getValidActions(self):
@@ -78,38 +84,42 @@ class cartpole_env(env.environment):
         self.netState = [self.raw2singleNetState()] * len(self.netState)
         self.is_done = False
         self.is_partDone = False
-        self.gameCounter = 0
         self.score = 0
         self.lastReward = -np.Inf
+        self.ballsPlayed = 0
         
     
     def update(self, action):
         """ 
         Updates the environment accoring to an action.
         Stores relevant returns
+        ATTENTION: game is artificially ended after each 5th ball
         args: 
             action (float): the id of the action to be chosen
         """
         
         action = int(action) ## for using as array index
-        
+#        print "Action: {0}".format(action) 
         ## throw error on invalid action
         if action >= len(self.validActions):
             raise   ValueError("invalid action: " + str(action))
         if not self.validActions[action]:
             raise   ValueError("invalid action: " + str(action))
         
+        ## convert 3 actions to 6 actions of env.
+        ## 0, 2 and 3 are all the moves
+        if action == 1:
+            action = 3
         tmp = self.env.step(action)
-        self.is_partDone = tmp[2]
-        if self.is_partDone: self.gameCounter +=1
-        if self.is_partDone:
-            self.state = self.env.reset()
-            self.netState = [self.raw2singleNetState()] * len(self.netState)
-        else:
-            self.state = tmp[0]
-            self.netState = self.netState[:-1] + [self.raw2singleNetState()]
+        self.state = tmp[0]
+        self.netState = self.netState[:-1] + [self.raw2singleNetState()]
         self.lastReward = tmp[1]
-        if self.gameCounter == self.episodeLength:
+        ## whenever reward is -1 or 1, a ball is lost and update balls played
+        if self.lastReward != 0: 
+            self.ballsPlayed +=1
+            self.is_partDone = True
+        else: self.is_partDone = False
+        if tmp[2] or self.ballsPlayed == self.nBallsEpisode:
             self.is_done = True
         self.score += self.lastReward
             
@@ -129,6 +139,6 @@ class cartpole_env(env.environment):
         """
         returns the total score (sum of rewards of all actions taken)
         """
-        return self.score / self.episodeLength
+        return self.score
         
     

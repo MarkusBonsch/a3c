@@ -6,9 +6,9 @@ Created on Sat Dec 29 08:29:53 2018
 """
 
 import sys
-sys.path.insert(0,'C:\\Users\\markus\\Documents\\Nerding\\python\\a3c\\src')
-sys.path.insert(0,'C:\\Users\\markus\\Documents\\Nerding\\python\\a3c\\test\\cartpole')
-sys.path.insert(0,'C:\\Users\\markus\\Documents\\Nerding\\python\\plotting\\src')
+sys.path.insert(0,'/home/markus/Documents/Nerding/python/a3c/src')
+sys.path.insert(0,'/home/markus/Documents/Nerding/python/a3c/test/cartpole')
+sys.path.insert(0,'/home/markus/Documents/Nerding/python/plotting')
 
 from cartpole_env import cartpole_env
 import mxnetTools as mxT
@@ -16,13 +16,15 @@ import mxnet as mx
 from mainThread import mainThread as mT
 
 def cartpoleMaker():
-    return cartpole_env(1)
+    return cartpole_env(seqLength = 1, useSeqLength = False)
 
 def netMaker():
     net = mxT.a3cHybridSequential(useInitStates= True)
-    net.add(mxT.a3cLSTM(mx.gluon.rnn.LSTM(hidden_size = 32,
+#    net.add(mx.gluon.nn.Dense(units = 32, prefix = 'd1', flatten = True, activation='relu'))
+#    net.add(mx.gluon.nn.ELU())
+    net.add(mxT.a3cLSTM(mx.gluon.rnn.LSTMCell(hidden_size = 32,
                                           prefix = "lstm_")))
-    net.add(mx.gluon.nn.Activation("relu"))
+    net.add(mx.gluon.nn.ELU())
 #    net.add(mx.gluon.nn.Dense(units = 32, activation = "relu", prefix = "fc_"))
     net.add(mxT.a3cOutput(n_policy = 2, prefix = ""))
     net.initialize(init = mx.initializer.Xavier(), ctx= mx.cpu())
@@ -31,12 +33,8 @@ def netMaker():
 mainThread = mT(netMaker   = netMaker , 
                 envMaker   = cartpoleMaker, 
                 configFile = 'a3c/test/cartpole/cartpole.cfg', 
+                outputDir = "a3c/test/cartpole/5games/out",
+                saveInterval = 200,
                 verbose    = False)
 
 mainThread.run()
-
-mainThread.save("a3c/test/cartpole/LSTM1000Seq4", overwrite = False, savePlots=True)
-
-#after = mainThread.module.get_params()[0]['fullyconnected0_weight'].asnumpy()
-
-mainThread.getPerformancePlots("test", overwrite=True)

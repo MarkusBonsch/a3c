@@ -28,7 +28,7 @@ class mainThread:
     
     A log, essentially a list where the workers can enter train metrics
     """    
-    def __init__(self, netMaker, envMaker, configFile, verbose = False):
+    def __init__(self, netMaker, envMaker, configFile, outputDir = None, saveInterval = 200, verbose = False):
         """
         Sets up a parameter server accorfing to a config.
         Args:
@@ -37,10 +37,17 @@ class mainThread:
                                  Last block must be a3cOutput
             envMAker(function): creates the game environment.
             configFile(string): path to the config file
+            outputDir (string): if None, no output is saved. Otherwise, the model and log are saved every 200 games.
+            sevaInterval (int): model will be saved after saveInterval episodes.
         """
-        self.log = []
+        self.log = pd.DataFrame(columns = ['workerId','step','updateSteps','gamesFinished',
+                                           'loss','lossPolicy','lossValue','lossEntropy',
+                                           'score','rewards','actionDst'])
         self.extendedLog = []
         self.gradients = []
+        self.gameCounter = 0
+        self.outputDir = outputDir
+        self.saveInterval =saveInterval
         self.readConfig(configFile)
         
         self.envMaker = envMaker
@@ -70,24 +77,20 @@ class mainThread:
         """
         Do the actual training.
         """
-        
-        ## clear the log
-        self.log = []
+    
         ## initialize workers
         workers = []
         for wId in xrange(self.cfg['nWorkers']):
-            thisWorker = worker(self)
+            thisWorker = worker(self, id = wId)
             workers.append(thisWorker)
             thisWorker.start()
         
         for x in workers:
             x.join()
-            
-        ## transform the log into nice pandas data frames
-        self.log = map(pd.DataFrame,self.log)
-        self.log = pd.concat(self.log)
+
         self.extendedLog = map(pd.DataFrame,self.extendedLog)
         self.extendedLog = pd.concat(self.extendedLog)
+        self.save("{0}_{1}".format(self.outputDir, self.gameCounter), savePlots = True, overwrite = True)
         
     def getPerformancePlots(self, dirname = 'mainThreadPerformance', overwrite = False):
         """
@@ -99,12 +102,12 @@ class mainThread:
         if not os.path.exists(dirname):
             os.mkdir(dirname)
         elif not overwrite:
-            raise IOError("Directory {0} already exists!".format(dirname))
-            
+            raise IOError("Directory {0} already exists!".format(dirname))  
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['loss'],
@@ -118,6 +121,7 @@ class mainThread:
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['lossValue'],
@@ -131,6 +135,7 @@ class mainThread:
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['lossPolicy'],
@@ -144,6 +149,7 @@ class mainThread:
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['lossEntropy'],
@@ -157,6 +163,7 @@ class mainThread:
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['score'],
@@ -181,6 +188,8 @@ class mainThread:
                 raise  IOError('Folder already exists: ' + outFolder + '. Specify overwrite = True if needed')
         ## save model
         self.net.save(outFolder, overwrite = True)
+        ## save log
+        self.log.to_pickle(os.path.join(outFolder, 'log.pck'))
         ## save config
         with open(os.path.join(outFolder, 'config.cfg'), 'w') as outfile:
             yaml.dump(self.cfg, outfile, default_flow_style=False)

@@ -88,7 +88,7 @@ class a3cLoss(gluon.loss.Loss):
         self.entroplyLoss = 0
         
     def hybrid_forward(self, F, value, policy, valueLabel, policyLabel):
-        self. valueLoss = self.vSc * F.nansum(F.square((valueLabel - value) / (valueLabel + value)),
+        self. valueLoss = self.vSc * F.nansum(F.square((valueLabel - value)),
                                    name = "valueLoss")
         self.policyLoss = -F.nansum(F.log(policy + 1e-7) * policyLabel,
                                     name = 'policyLoss')
@@ -231,16 +231,32 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
         ## save trainer params
         self.trainer.save_states(os.path.join(outFolder, "trainer.states"))
         
-    def reset(self):
+    def reset(self, initStates = None):
         """ 
         calls the reset method of all children if they are a3cBlocks
+        Args: 
+            initStates (dict): init States for all L=a3cLSTM layers. Key is the name of the layer.
         """
         def resetter(self):
             if isinstance(self, a3cBlock):
-#                print "resetting {0}\n".format(self.name)
-                self.reset()
+                if initStates is not None and self.name in initStates.keys():
+                    self.reset(initStates[self.name])
+                else:
+                    self.reset()
         self.apply(resetter)
         
+    def getInitStates(self):
+        """ 
+        searches for a3cLSTM layers and collects the initial parameters.
+        returns: name of layer and init states.
+        """
+        out = {}
+        for block in self._children.values():
+            if isinstance(block, a3cLSTM):
+                out.update({block.name:  block.initStates})
+        return out
+        
+    
     def hybrid_forward(self, F, x):
         """
         Need to overwrite forward to make it support two parameters for a3cLSTM layers
@@ -254,6 +270,8 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
                 else:
                     x = block(x)
         return x
+    
+    
         
 class a3cLSTM(a3cBlock):
     """
@@ -280,17 +298,24 @@ class a3cLSTM(a3cBlock):
         else: ## no states are returned
             states = None
             output = output[0]
-        # select last element of output along sequence axis
-        seqDim = self.block._layout.find('T')
-        output = F.reverse(output,axis = seqDim)
-        output = F.slice_axis(output, axis = seqDim, begin = 0, end = 1)
+        # select last element of output along sequence axis.
+        if isinstance(self.block, mx.gluon.rnn.LSTM):
+            seqDim = self.block._layout.find('T')
+            output = F.reverse(output,axis = seqDim)
+            output = F.slice_axis(output, axis = seqDim, begin = 0, end = 1)
         ## save last states as initStates
         if states is not None:
             self.initStates = states
         return(output)
     
-    def reset(self):
+    def reset(self, initStates = None):
         """
-        resets the initStates to all 0
+        resets the initStates
+        Args:
+            initStates(list of two symbols): if None, initStates will be reset to defaultInitStates.
+                                             if not None, initStates will be reset to this value.
         """
-        self.initStates = self.defaultInitStates
+        if initStates is None:
+            self.initStates = self.defaultInitStates
+        else:
+            self.initStates = initStates

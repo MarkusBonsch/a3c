@@ -53,10 +53,18 @@ class environment:
     @abstractmethod
     def isDone(self):
         """
-        Receives bool that indicates whether the game is over
+        Returns bool that indicates whether the game is over
         """
         raise NotImplementedError("Please overload isDone method when implementing environment.")   
-    
+        
+    @abstractmethod
+    def isPartDone(self):
+        """
+        Returns bool that indicates whether a part of the game is done,
+        e.g. one ball in Pong.
+        """
+        raise NotImplementedError("Please overload isPartDone method when implementing environment.")   
+        
     @abstractmethod
     def getLastReward(self):    
         """
