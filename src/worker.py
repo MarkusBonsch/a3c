@@ -70,13 +70,13 @@ class worker(threading.Thread):
         timeLeft = len(self.rewards)
         R = lastValue
         out = [None] * timeLeft
-        for n in range(timeLeft):
-            if self.resetTrigger[-(n+1)]: R = 0
-            R = self.rewardDiscount * R + self.rewards[-(n+1)]
+        for n in reversed(range(timeLeft)):
+            if self.resetTrigger[n]: R = 0
+            R = self.rewardDiscount * R + self.rewards[n]
             out[n] = R
         return(out)
     
-    def normalizeRewardAdvantage(self, discountedReward, advantages,nEpisodes = 10):
+    def normalizeRewardAdvantage(self, discountedReward, advantages,nEpisodes = 5):
         """
         takes discounted reward and advantages and normalizes them
         with respect to the nEpisodes last episodes
@@ -274,18 +274,18 @@ class worker(threading.Thread):
                     self.net.copyParams(fromNet = self.mainThread.net)
                     ## store performance indicators after game is finished      
                     self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( verbose=True) )                        
-                    
                     self.collectDiagnosticInfo()
                     ## clear local gradients.
                     self.net.clearGradients()
+                    ## make sure to reset model to continue collecting experience
+                    self.net.reset(initStates)
                     ## clear memory
                     self.rewards     = []
                     self.values      = []
                     self.states      = []
                     self.policies    = []
                     self.resetTrigger= []
-                    ## make sure to reset model to continue collecting experience
-                    self.net.reset(initStates)
+                    
             
             self.gamesPlayed += 1
             self.mainThread.gameCounter += 1
