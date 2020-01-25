@@ -44,7 +44,6 @@ class mainThread:
                                            'loss','lossPolicy','lossValue','lossEntropy',
                                            'score','rewards','actionDst'])
         self.extendedLog = []
-        self.gradients = []
         self.gameCounter = 0
         self.outputDir = outputDir
         self.saveInterval =saveInterval
@@ -87,9 +86,9 @@ class mainThread:
         
         for x in workers:
             x.join()
-
-        self.extendedLog = map(pd.DataFrame,self.extendedLog)
-        self.extendedLog = pd.concat(self.extendedLog)
+        if len(self.extendedLog) > 0:
+            self.extendedLog = map(pd.DataFrame,self.extendedLog)
+            self.extendedLog = pd.concat(self.extendedLog)
         self.save("{0}_{1}".format(self.outputDir, self.gameCounter), savePlots = True, overwrite = True)
         
     def getPerformancePlots(self, dirname = 'mainThreadPerformance', overwrite = False):
@@ -112,9 +111,13 @@ class mainThread:
                         x = thisData['gamesFinished'],
                         y = thisData['loss'],
                         mode = 'lines+markers',
-                        name = "worker {0}".format(wId)))      
-        
+                        name = "worker {0}".format(wId)))  
+        maxY = thisData['loss'].quantile(0.9)
+        minY = thisData['loss'].min()
         out = pi.plotlyInterface(data)
+        out.fig.update_layout(
+                yaxis = go.layout.YAxis(
+                            range = [minY, maxY]))
         out.plotToFile(os.path.join(dirname, 'losses.html'))
         
         data = []
@@ -129,6 +132,12 @@ class mainThread:
                         name = "worker {0}".format(wId)))      
         
         out = pi.plotlyInterface(data)
+        maxY = thisData['loss'].quantile(0.9)
+        minY = thisData['loss'].min()
+        out = pi.plotlyInterface(data)
+        out.fig.update_layout(
+                yaxis = go.layout.YAxis(
+                            range = [minY, maxY]))
         out.plotToFile(os.path.join(dirname, 'lossesValue.html'))
         
         data = []
@@ -142,6 +151,12 @@ class mainThread:
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
         
+        maxY = thisData['loss'].quantile(0.9)
+        minY = thisData['loss'].min()
+        out = pi.plotlyInterface(data)
+        out.fig.update_layout(
+                yaxis = go.layout.YAxis(
+                            range = [minY, maxY]))
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'lossesPolicy.html'))
         
@@ -155,7 +170,13 @@ class mainThread:
                         y = thisData['lossEntropy'],
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
-        
+
+        maxY = thisData['loss'].quantile(0.9)
+        minY = thisData['loss'].min()
+        out = pi.plotlyInterface(data)
+        out.fig.update_layout(
+                yaxis = go.layout.YAxis(
+                            range = [minY, maxY]))
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'lossesEntropy.html'))
         
@@ -169,7 +190,12 @@ class mainThread:
                         y = thisData['score'],
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))        
-        
+        maxY = thisData['loss'].quantile(0.9)
+        minY = thisData['loss'].min()
+        out = pi.plotlyInterface(data)
+        out.fig.update_layout(
+                yaxis = go.layout.YAxis(
+                            range = [minY, maxY]))        
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'scores.html'))
         
@@ -190,6 +216,8 @@ class mainThread:
         self.net.save(outFolder, overwrite = True)
         ## save log
         self.log.to_pickle(os.path.join(outFolder, 'log.pck'))
+        if len(self.extendedLog) > 0:
+            self.extendedLog.to_pickle(os.path.join(outFolder, 'extendedLog.pck'))
         ## save config
         with open(os.path.join(outFolder, 'config.cfg'), 'w') as outfile:
             yaml.dump(self.cfg, outfile, default_flow_style=False)
