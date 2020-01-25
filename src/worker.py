@@ -32,7 +32,6 @@ class worker(threading.Thread):
         self.extendedLog = []
         self.initialState = 0
         self.paramMean = 0
-        self.gradients = []
         self.meanLoss = {'total': 0, 'policy': 0, 'value': 0, 'entropy': 0}
         ## own copy of game environment
         self.environment = self.mainThread.envMaker()
@@ -146,9 +145,10 @@ class worker(threading.Thread):
 #            pdb.set_trace()
         ## count action appearances
         policies = [v.asnumpy().item() for v in self.policies]
-        actionDst = [] 
+        actionDst = "" 
         for i in range(len(self.environment.getValidActions())):
-            actionDst.append(policies.count(i))
+            actionDst += "{0}: {1}; ".format(i, policies.count(i))
+        
         tmp = {'workerId': self.id, 
                'step':self.nSteps,
                'updateSteps': self.updateSteps,
@@ -160,20 +160,21 @@ class worker(threading.Thread):
                'score': score,
                'rewards': sum([v.asnumpy() for v in self.rewards])[0,0] / len(self.rewards),
                'actionDst': actionDst}
-        
         if verbose: 
             print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, rewards: {5}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['rewards'])
-        return pd.DataFrame(tmp)
+        return pd.DataFrame(tmp, index = [self.gamesPlayed])
         
     def collectDiagnosticInfo(self):
         """
         adds gradients, actions, etc for diagnostic info at update time to extended log
         """
-        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'actions': [int(x.asnumpy()) for x in self.policies], 'initialState': self.initialState, 'paramMean': self.paramMean}
+        gradSummary = mx.nd.moments(mx.nd.concat(*[x.grad().reshape(-1) for x in self.net.collect_params().values()], 
+                                                 dim = 0), 
+                                    axes = 0)
+        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'gradMean': gradSummary[0].asscalar(), 'gradSd': mx.nd.sqrt(gradSummary[1]).asscalar(), 'actions': [int(x.asnumpy()) for x in self.policies], 'initialState': self.initialState, 'paramMean': self.paramMean}
         self.extendedLog.append(actions)
-#        gradients = {'workerId': self.id, 'gradients': self.module.getGradientsNumpy()}
-#        self.gradients.append(gradients)
-#        
+        
+        
     
     def run(self):
         """
@@ -188,9 +189,10 @@ class worker(threading.Thread):
             self.initialState = self.environment.getRawState()
             ## reset model (e.g. lstm initial states)
             self.net.reset()
-            ## check for model params by calculating the mean of all params
-            paramMeans = {k: v.data().asnumpy().mean() for k,v in self.net.collect_params().items()}
-            self.paramMean = np.mean(paramMeans.values())
+            if self.verbose:
+                ## check for model params by calculating the mean of all params
+                paramMeans = {k: v.data().asnumpy().mean() for k,v in self.net.collect_params().items()}
+                self.paramMean = np.mean(paramMeans.values())
             while(not self.environment.isDone()):
                 self.nSteps += 1
                 self.states.append(mx.nd.array(self.environment.getNetState()))                 
@@ -254,14 +256,13 @@ class worker(threading.Thread):
                         ## for the chosen policy
                         advantageArray = mx.nd.zeros(shape = policy.shape)
                         advantageArray[0,self.policies[t]] = advantages[t]
-                        ## reset model if necessary
-                        if self.resetTrigger[t]: self.net.reset()
                         ## do forward and backward pass to accumulate gradients
                         with mx.autograd.record(): ## per default in "is_train" mode
                             value, policy = self.net(self.states[t])
                             loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantageArray)
                         loss.backward() ## grd_req is add, so gradients are accumulated       
-                        
+                        ## reset model if necessary
+                        if self.resetTrigger[t]: self.net.reset()                        
                         self.meanLoss['total'] += self.net.lossFct[0][0].getLoss()
                         self.meanLoss['policy'] += self.net.lossFct[0][0].getPolicyLoss()
                         self.meanLoss['value'] += self.net.lossFct[0][0].getValueLoss()
@@ -274,7 +275,8 @@ class worker(threading.Thread):
                     self.net.copyParams(fromNet = self.mainThread.net)
                     ## store performance indicators after game is finished      
                     self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( verbose=True) )                        
-                    self.collectDiagnosticInfo()
+                    if self.verbose:
+                        self.collectDiagnosticInfo()
                     ## clear local gradients.
                     self.net.clearGradients()
                     ## make sure to reset model to continue collecting experience
@@ -289,9 +291,9 @@ class worker(threading.Thread):
             
             self.gamesPlayed += 1
             self.mainThread.gameCounter += 1
-            ## send extendedLog to mainThread after work is finished
-            self.mainThread.extendedLog.append(self.extendedLog)
-            self.mainThread.gradients. append(self.gradients)
+            if self.verbose:
+                ## send extendedLog to mainThread after work is finished
+                self.mainThread.extendedLog.append(self.extendedLog)
             
             if self.mainThread.outputDir is not None and self.mainThread.gameCounter > 0:
                 if self.mainThread.gameCounter % self.mainThread.saveInterval == 0:
