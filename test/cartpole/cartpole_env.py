@@ -23,10 +23,11 @@ class cartpole_env(env.environment):
         
     """
     
-    def __init__(self, seqLength = 1, useSeqLength = False):
+    def __init__(self, episodeLength = 1, seqLength = 1, useSeqLength = False):
         """ 
         set up the basic environment
         Args:
+            episodeLength (int): how many games constitute one episode?
             seqLength(int): sequence length.
             useSeqLength (bool): whether to return full sequence or only single state.
         """
@@ -35,7 +36,7 @@ class cartpole_env(env.environment):
         self.state = 0
         self.netState = [None] * seqLength
         self.useSeqLength = useSeqLength
-        self.episodeLength = 5
+        self.episodeLength = episodeLength
         self.reset()
         
     def getRawState(self):    

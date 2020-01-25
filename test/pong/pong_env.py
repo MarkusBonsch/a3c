@@ -32,7 +32,7 @@ class pong_env(env.environment):
             seqLength(int): sequence length. 0 if no rnn is present.
             useSeqLength(bool): if True, getNetState returns a list, if False, a single state.
         """
-        self.env = gym.make('Pong-v0')
+        self.env = gym.make('PongDeterministic-v0')
         self.validActions = np.ones(shape = (3))
         self.state = 0
         self.useSeqLength = useSeqLength
@@ -63,7 +63,7 @@ class pong_env(env.environment):
         Returns the state as required as input for the a3cNet
         """
         if not self.useSeqLength:
-            return self.netState[0]
+            return self.netState[-1]
         out = mx.nd.zeros(shape = (len(self.netState),) + self.netState[0].shape)
         for i in range(len(self.netState)):
             out[i,:,:] = self.netState[i]
@@ -93,14 +93,12 @@ class pong_env(env.environment):
         """ 
         Updates the environment accoring to an action.
         Stores relevant returns
-        ATTENTION: game is artificially ended after each 5th ball
+        ATTENTION: game is artificially ended
         args: 
             action (float): the id of the action to be chosen
         """
         
-        action = int(action) ## for using as array index
-#        print "Action: {0}".format(action) 
-        ## throw error on invalid action
+        action = int(action)
         if action >= len(self.validActions):
             raise   ValueError("invalid action: " + str(action))
         if not self.validActions[action]:
@@ -114,7 +112,7 @@ class pong_env(env.environment):
         self.state = tmp[0]
         self.netState = self.netState[:-1] + [self.raw2singleNetState()]
         self.lastReward = tmp[1]
-        ## whenever reward is -1 or 1, a ball is lost and update balls played
+        ## whenever reward is -1 or 1, a ball is lost
         if self.lastReward != 0: 
             self.ballsPlayed +=1
             self.is_partDone = True
