@@ -16,7 +16,7 @@ import mxnet as mx
 from mainThread import mainThread as mT
 
 def cartpoleMaker():
-    return cartpole_env(seqLength = 1, useSeqLength = False)
+    return cartpole_env(episodeLength = 1, seqLength = 1, useSeqLength = False)
 
 def netMaker():
     net = mxT.a3cHybridSequential(useInitStates= True)
@@ -33,8 +33,8 @@ def netMaker():
 mainThread = mT(netMaker   = netMaker , 
                 envMaker   = cartpoleMaker, 
                 configFile = 'a3c/test/cartpole/cartpole.cfg', 
-                outputDir = "a3c/test/cartpole/5games/out",
-                saveInterval = 200,
-                verbose    = False)
+                outputDir = "a3c/test/cartpole/test2",
+                saveInterval = 2,
+                verbose    = True)
 
 mainThread.run()

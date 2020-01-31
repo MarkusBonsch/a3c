@@ -5,6 +5,7 @@ Created on Sun Dec 23 11:28:01 2018
 @author: markus
 """
 import threading
+import time
 import mxnet as mx
 import mxnetTools as mxT
 import os
@@ -29,10 +30,17 @@ class worker(threading.Thread):
         self.mainThread = mainThread      
         ## determine worker id from length of mainThread log
         self.id = id
-        self.extendedLog = []
         self.initialState = 0
         self.paramMean = 0
         self.meanLoss = {'total': 0, 'policy': 0, 'value': 0, 'entropy': 0}
+        self.expTime = 0
+        self.gradTime = 0
+        self.discountTime = 0
+        self.rewardTime = 0
+        self.advantageTime = 0
+        self.logTime = 0
+        self.updateTime = 0
+        self.totalTime = 0
         ## own copy of game environment
         self.environment = self.mainThread.envMaker()
         ## setup the local network.
@@ -50,6 +58,7 @@ class worker(threading.Thread):
         self.gamesPlayed = 0
         self.nSteps = 0
         self.rewardDiscount = self.mainThread.cfg['rewardDiscount']
+        self.normRange = self.mainThread.cfg['normRange']
         self.verbose = mainThread.verbose
         self.rewards     = []
         self.values      = []
@@ -75,7 +84,7 @@ class worker(threading.Thread):
             out[n] = R
         return(out)
     
-    def normalizeRewardAdvantage(self, discountedReward, advantages,nEpisodes = 5):
+    def normalizeRewardAdvantage(self, discountedReward, advantages, nEpisodes = 5):
         """
         takes discounted reward and advantages and normalizes them
         with respect to the nEpisodes last episodes
@@ -94,6 +103,7 @@ class worker(threading.Thread):
             ## need to drop oldest episode before update
             self.rewardHistory = self.rewardHistory.loc[self.rewardHistory['episode'] != 1]
             self.rewardHistory['episode'] -=1
+            lastEpisode -= 1
         newcols = len(discountedReward)
         newData = {'episode':    [lastEpisode + 1] * newcols, 
                    'rewards':    [v.asnumpy().item() for v in discountedReward],
@@ -159,7 +169,16 @@ class worker(threading.Thread):
                'lossEntropy': self.meanLoss['entropy'],
                'score': score,
                'rewards': sum([v.asnumpy() for v in self.rewards])[0,0] / len(self.rewards),
-               'actionDst': actionDst}
+               'actionDst': actionDst,
+               'expTime': self.expTime,
+               'gradTime': self.gradTime,
+               'discountTime': self.discountTime,
+               'rewardTime': self.rewardTime,
+               'advantageTime': self.advantageTime,
+               'logTime': self.logTime,
+               'updateTime': self.updateTime,
+               'totalTime': self.totalTime
+               }
         if verbose: 
             print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, rewards: {5}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['rewards'])
         return pd.DataFrame(tmp, index = [self.gamesPlayed])
@@ -171,8 +190,8 @@ class worker(threading.Thread):
         gradSummary = mx.nd.moments(mx.nd.concat(*[x.grad().reshape(-1) for x in self.net.collect_params().values()], 
                                                  dim = 0), 
                                     axes = 0)
-        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'gradMean': gradSummary[0].asscalar(), 'gradSd': mx.nd.sqrt(gradSummary[1]).asscalar(), 'actions': [int(x.asnumpy()) for x in self.policies], 'initialState': self.initialState, 'paramMean': self.paramMean}
-        self.extendedLog.append(actions)
+        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'gradMean': gradSummary[0].asscalar(), 'gradSd': mx.nd.sqrt(gradSummary[1]).asscalar(), 'paramMean': self.paramMean}
+        return pd.DataFrame(actions, index = [self.gamesPlayed])
         
         
     
@@ -184,6 +203,8 @@ class worker(threading.Thread):
         while(self.gamesPlayed < self.nGames):
         ## loop over the games         
             ## start a new game
+            ts = time.time()
+            ts0 = ts
             self.environment.reset()
             ## store initial state for diagnostic info
             self.initialState = self.environment.getRawState()
@@ -219,8 +240,12 @@ class worker(threading.Thread):
                 self.resetTrigger.append(self.environment.isPartDone())
                 if self.resetTrigger[-1]: self.net.reset()
                 
+                ts1 = time.time()
+                self.expTime += ts1 - ts
+                ts = ts1
                 if self.nSteps%self.updateFrequency == 0 or self.environment.isDone():
                 ## we are updating!
+                    ts2 = time.time()    
                     self.updateSteps = self.nSteps%self.updateFrequency
                     if self.updateSteps == 0:
                         self.updateSteps = self.updateFrequency
@@ -238,10 +263,20 @@ class worker(threading.Thread):
                       ## get value of new state after policy update as
                       ## future reward estimate
                       lastValue, _ = self.net(self.environment.getNetState())
+                    ts3 = time.time()
+                    self.gradTime += ts3 - ts2    
+                    
                     discountedReward = self.getDiscountedReward(lastValue)
+                    ts4 = time.time()
+                    self.rewardTime += ts4 - ts3
                     advantages = [r - v for (r, v) in zip(discountedReward, self.values)]
+                    ts5 = time.time()
+                    self.advantageTime += ts5 - ts4
                     ## normalize
-                    discountedReward, advantages = self.normalizeRewardAdvantage(discountedReward, advantages)
+                    if self.normRange is not None:
+                        discountedReward, advantages = self.normalizeRewardAdvantage(discountedReward, advantages, nEpisodes=self.normRange)
+                    ts6 = time.time()
+                    self.discountTime += ts6-ts5
                     ## reset model (e.g. lstm initial states)
                     ## make sure to remember initStates to reset later
                     if self.environment.isDone() or self.environment.isPartDone():
@@ -270,13 +305,22 @@ class worker(threading.Thread):
                     self.meanLoss = {k: float((v / self.updateSteps).asnumpy()) for k,v in self.meanLoss.items()}
                     ## send gradients to mainThread and do the update.
                     ## gradients on mainThread get cleared automatically
+                    ts1 = time.time()
+                    self.gradTime += ts1 - ts6
+                    ts = ts1
                     self.mainThread.net.updateFromWorker(fromNet = self.net, dummyData = self.environment.getNetState())
                     ## get new parameters from mainThread
                     self.net.copyParams(fromNet = self.mainThread.net)
-                    ## store performance indicators after game is finished      
+                    ts1 = time.time()
+                    self.updateTime += ts1 - ts
+                    ts = ts1
+                    self.totalTime = ts - ts0
+                    ## store performance indicators after game is finished 
+                    ts3 = time.time()
                     self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( verbose=True) )                        
                     if self.verbose:
-                        self.collectDiagnosticInfo()
+                        self.mainThread.extendedLog = self.mainThread.extendedLog.append(self.collectDiagnosticInfo() )                        
+                    self.logTime += time.time()-ts3
                     ## clear local gradients.
                     self.net.clearGradients()
                     ## make sure to reset model to continue collecting experience
@@ -291,14 +335,18 @@ class worker(threading.Thread):
             
             self.gamesPlayed += 1
             self.mainThread.gameCounter += 1
-            if self.verbose:
-                ## send extendedLog to mainThread after work is finished
-                self.mainThread.extendedLog.append(self.extendedLog)
-            
             if self.mainThread.outputDir is not None and self.mainThread.gameCounter > 0:
                 if self.mainThread.gameCounter % self.mainThread.saveInterval == 0:
-                    self.mainThread.save("{0}_{1}".format(self.mainThread.outputDir, self.mainThread.gameCounter), savePlots = True, overwrite = True)
+                    self.mainThread.save(os.path.join(self.mainThread.outputDir, str(self.mainThread.gameCounter)), savePlots = True, overwrite = True)
             self.nSteps = 0
+            self.expTime = 0
+            self.gradTime = 0
+            self.updateTime = 0
+            self.totalTime = 0
+            self.discountTime = 0
+            self.logTime = 0
+            self.rewardTime = 0
+            self.advantageTime = 0
         
                 
         

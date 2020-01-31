@@ -46,29 +46,13 @@ class pong_env(env.environment):
         """
         return self.state
         
-#    def raw2singleNetState(self):
-#        """
-#        converts numpy array to apropriate mxnet nd array
-#        """
-#        state = self.state[35:209,0:159] ## crop unnecessary parts
-#        state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY) ## convert to greyscale
-#        state = cv2.resize(src = state, dsize = (48,48), interpolation = cv2.INTER_AREA) ## resize
-#        state = np.expand_dims(state, 0)
-#        state = np.expand_dims(state, 0) ## additional axes for batch and channels
-#        state = mx.nd.array(state)
-#        return(state)
-        
     def raw2singleNetState(self):
         """
         converts numpy array to apropriate mxnet nd array
         """
-        state = self.state[34:193,0:159] ## crop unnecessary parts
-        origState = state
-        ## convert to black and white, assuming constant background color
-        bg = (144,72,17)
-        state = np.ones_like(origState[:,:,0]) * 255
-        state[(origState[:,:,0] == bg[0]) & (origState[:,:,1] == bg[1]) & (origState[:,:,2] == bg[2])] = 0
-        state = cv2.resize(src = state, dsize = (80,80), interpolation = cv2.INTER_NEAREST) ## resize
+        state = self.state[35:209,0:159] ## crop unnecessary parts
+        state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY) ## convert to greyscale
+        state = cv2.resize(src = state, dsize = (48,48), interpolation = cv2.INTER_AREA) ## resize
         state = np.expand_dims(state, 0)
         state = np.expand_dims(state, 0) ## additional axes for batch and channels
         state = mx.nd.array(state)
@@ -127,7 +111,7 @@ class pong_env(env.environment):
         tmp = self.env.step(action)
         self.state = tmp[0]
         self.netState = self.netState[:-1] + [self.raw2singleNetState()]
-        self.lastReward = tmp[1]
+        self.lastReward = tmp[1] * 1000 # upscale reward to make signal clearer
         ## whenever reward is -1 or 1, a ball is lost
         if self.lastReward != 0: 
             self.ballsPlayed +=1

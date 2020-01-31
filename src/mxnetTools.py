@@ -178,7 +178,7 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
         Args:
             fromNet(mx.gluon.nn.HybridSequential): Parameters will be copied from this net.
         """
-        if not fromNet.collect_params().keys() == self.collect_params().keys():
+        if not sorted(fromNet.collect_params().keys()) == sorted(self.collect_params().keys()):
             raise ValueError("both models need to have identical parameter names")
         for name in self.collect_params().keys():
             self.collect_params()[name].set_data(fromNet.collect_params()[name].data())

@@ -35,15 +35,18 @@ class mainThread:
             netMaker (function): a function returning the neural network
                                  with initialized parameters. Must be of type a3cHybridSequential.
                                  Last block must be a3cOutput
-            envMAker(function): creates the game environment.
+            envMaker(function): creates the game environment.
             configFile(string): path to the config file
             outputDir (string): if None, no output is saved. Otherwise, the model and log are saved every 200 games.
-            sevaInterval (int): model will be saved after saveInterval episodes.
+            saveInterval (int): model will be saved after saveInterval episodes.
+            verbose (bool): whether to store extended log with gradient and parameter info
+            
         """
         self.log = pd.DataFrame(columns = ['workerId','step','updateSteps','gamesFinished',
                                            'loss','lossPolicy','lossValue','lossEntropy',
                                            'score','rewards','actionDst'])
-        self.extendedLog = []
+        self.extendedLog  = pd.DataFrame(columns = ['workerId','gamesFinished','gradMean',
+                                                     'gradSd','actions','initialState','paramMean'])
         self.gameCounter = 0
         self.outputDir = outputDir
         self.saveInterval =saveInterval
@@ -61,6 +64,8 @@ class mainThread:
         ## the trainer updates the parameters
         self.net.initTrainer(optimizer     = self.cfg['optimizer'],
                              optimizerArgs = self.cfg['optimizerArgs'])
+        if self.cfg['trainerFile'] is not None:
+            self.net.trainer.load_states(self.cfg['trainerFile'])
         self.verbose = verbose
         
     def readConfig(self, configFile):
@@ -86,10 +91,7 @@ class mainThread:
         
         for x in workers:
             x.join()
-        if len(self.extendedLog) > 0:
-            self.extendedLog = map(pd.DataFrame,self.extendedLog)
-            self.extendedLog = pd.concat(self.extendedLog)
-        self.save("{0}_{1}".format(self.outputDir, self.gameCounter), savePlots = True, overwrite = True)
+        self.save(os.path.join(self.outputDir, "final"), savePlots = True, overwrite = True)
         
     def getPerformancePlots(self, dirname = 'mainThreadPerformance', overwrite = False):
         """
@@ -132,8 +134,8 @@ class mainThread:
                         name = "worker {0}".format(wId)))      
         
         out = pi.plotlyInterface(data)
-        maxY = thisData['loss'].quantile(0.9)
-        minY = thisData['loss'].min()
+        maxY = thisData['lossValue'].quantile(0.9)
+        minY = thisData['lossValue'].min()
         out = pi.plotlyInterface(data)
         out.fig.update_layout(
                 yaxis = go.layout.YAxis(
@@ -151,13 +153,12 @@ class mainThread:
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
         
-        maxY = thisData['loss'].quantile(0.9)
-        minY = thisData['loss'].min()
+        maxY = thisData['lossPolicy'].quantile(0.9)
+        minY = thisData['lossPolicy'].min()
         out = pi.plotlyInterface(data)
         out.fig.update_layout(
                 yaxis = go.layout.YAxis(
                             range = [minY, maxY]))
-        out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'lossesPolicy.html'))
         
         data = []
@@ -171,13 +172,12 @@ class mainThread:
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
 
-        maxY = thisData['loss'].quantile(0.9)
-        minY = thisData['loss'].min()
+        maxY = thisData['lossEntropy'].quantile(0.9)
+        minY = thisData['lossEntropy'].min()
         out = pi.plotlyInterface(data)
         out.fig.update_layout(
                 yaxis = go.layout.YAxis(
                             range = [minY, maxY]))
-        out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'lossesEntropy.html'))
         
         data = []
@@ -190,14 +190,92 @@ class mainThread:
                         y = thisData['score'],
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))        
-        maxY = thisData['loss'].quantile(0.9)
-        minY = thisData['loss'].min()
-        out = pi.plotlyInterface(data)
-        out.fig.update_layout(
-                yaxis = go.layout.YAxis(
-                            range = [minY, maxY]))        
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'scores.html'))
+        
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+            thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['step'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wId)))        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'episodeLengths.html'))
+        
+        data = []
+        wId = np.unique(self.log['workerId'])[0]
+        thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+        thisData.sort_values(['step'])
+        thisData.drop(thisData.index[0])
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['expTime'],
+                mode = 'markers',
+                name = "expTime worker {0}".format(wId)))
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['gradTime'],
+                mode = 'markers',
+                name = "gradTime worker {0}".format(wId)))
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['updateTime'],
+                mode = 'markers',
+                name = "updateTime worker {0}".format(wId)))            
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['totalTime'],
+                mode = 'markers',
+                name = "totalTime worker {0}".format(wId)))                        
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['totalTime'] - thisData['expTime'] - thisData['updateTime'] - thisData['gradTime'],
+                mode = 'markers',
+                name = "residualTime worker {0}".format(wId)))          
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['logTime'],
+                mode = 'markers',
+                name = "logTime worker {0}".format(wId)))  
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['discountTime'],
+                mode = 'markers',
+                name = "discountTime worker {0}".format(wId)))  
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['rewardTime'],
+                mode = 'markers',
+                name = "rewardTime worker {0}".format(wId))) 
+        data.append(go.Scatter(
+                x = thisData['step'],
+                y = thisData['advantageTime'],
+                mode = 'markers',
+                name = "advantageTime worker {0}".format(wId))) 
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'timing.html'))
+        
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+            thisData.sort_values(['gamesFinished'])
+            thisData.drop(thisData.index[0])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['totalTime'],
+                        mode = 'lines+markers',
+                        name = "total worker {0}".format(wId)))        
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['gradTime'],
+                        mode = 'lines+markers',
+                        name = "grad worker {0}".format(wId)))        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'timeOverEpisode.html'))
         
     def save(self, outFolder, savePlots = True, overwrite = False):
         """ 
