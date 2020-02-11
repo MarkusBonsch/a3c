@@ -184,3 +184,8 @@
 #cv.imshow('image',state[34:193,0:159])
 #cv.waitKey(0) 
 #cv.destroyAllWindows() 
+#
+#
+#
+#test = mx.nd.array([[1,0,2],[1,1,3],[2,4,5],[2,7,8]])
+#test[int(test[:,0].argmax(0).asscalar()):,:]

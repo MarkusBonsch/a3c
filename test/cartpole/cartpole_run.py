@@ -32,9 +32,6 @@ def netMaker():
     
 mainThread = mT(netMaker   = netMaker , 
                 envMaker   = cartpoleMaker, 
-                configFile = 'a3c/test/cartpole/cartpole.cfg', 
-                outputDir = "a3c/test/cartpole/test2",
-                saveInterval = 2,
-                verbose    = True)
+                configFile = 'a3c/test/cartpole/cartpole.cfg')
 
 mainThread.run()

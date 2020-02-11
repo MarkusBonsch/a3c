@@ -60,12 +60,12 @@ class worker(threading.Thread):
         self.rewardDiscount = self.mainThread.cfg['rewardDiscount']
         self.normRange = self.mainThread.cfg['normRange']
         self.verbose = mainThread.verbose
-        self.rewards     = []
-        self.values      = []
+        self.rewards     = None
+        self.values      = None
         self.states      = []
         self.policies    = []
         self.resetTrigger= []
-        self.rewardHistory = pd.DataFrame(columns = ['episode', 'reward', 'advantage'])
+        self.rewardHistory = None
         
     def getDiscountedReward(self, lastValue):
         """
@@ -73,15 +73,18 @@ class worker(threading.Thread):
         Args:
             lastValue(float): value of step after last action
         Returns:
-            discounted reward for each timestep
+            (mx.nd.array) discounted reward for each timestep 
         """
-        timeLeft = len(self.rewards)
+        timeLeft = self.rewards.shape[0]
         R = lastValue
-        out = [None] * timeLeft
+        out = mx.nd.zeros(shape = (1))
         for n in reversed(range(timeLeft)):
             if self.resetTrigger[n]: R = 0
             R = self.rewardDiscount * R + self.rewards[n]
-            out[n] = R
+            out = mx.nd.concat(out, R, dim = 0)
+        ## delete dummy first element and reverse again
+        out = out[1:]
+        out = out[::-1]
         return(out)
     
     def normalizeRewardAdvantage(self, discountedReward, advantages, nEpisodes = 5):
@@ -89,30 +92,37 @@ class worker(threading.Thread):
         takes discounted reward and advantages and normalizes them
         with respect to the nEpisodes last episodes
         Args:
-            discountedReward (list of ndArray): the discounted reward for each step
-            advantages (list of ndArray): the advantages for each step
+            discountedReward (ndArray): the discounted reward for each step
+            advantages (ndArray): the advantages for each step
             nEpisodes (int): number of episodes that are included in history for normalization
         Returns:
-            normalized rewards and advantages
+            ndArray normalized rewards and advantages
+            
+        self.rewardHistory is an array with episode Number, reward, advantage as columns
         """
-        lastEpisode = np.max(self.rewardHistory['episode'])
-        if np.isnan(lastEpisode):
-            lastEpisode = 1
-        ## update episode history
-        if lastEpisode == nEpisodes:
-            ## need to drop oldest episode before update
-            self.rewardHistory = self.rewardHistory.loc[self.rewardHistory['episode'] != 1]
-            self.rewardHistory['episode'] -=1
-            lastEpisode -= 1
-        newcols = len(discountedReward)
-        newData = {'episode':    [lastEpisode + 1] * newcols, 
-                   'rewards':    [v.asnumpy().item() for v in discountedReward],
-                   'advantages': [v.asnumpy().item() for v in advantages]}
-        self.rewardHistory = self.rewardHistory.append(pd.DataFrame(newData))
+        newRewardHistory = mx.nd.empty(shape = (discountedReward.shape[0], 3))
+        newRewardHistory[:,1] = discountedReward[:]
+        newRewardHistory[:,2] = advantages[:]
+        if self.rewardHistory is None: # start of the game
+            lastEpisode = 0
+            newRewardHistory[:,0] = 1
+            self.rewardHistory = newRewardHistory
+        else:
+            lastEpisode = int(self.rewardHistory[:,0].max(0).asscalar())
+            ## update episode history
+            if lastEpisode == nEpisodes:
+                ## need to drop oldest episode before update
+                self.rewardHistory = self.rewardHistory[int((self.rewardHistory[:,0] > 1).argmax(0).asscalar()):,:]
+                self.rewardHistory[:,0] -= 1
+                newRewardHistory[:,0] = nEpisodes
+            else:
+                newRewardHistory[:,0] = lastEpisode + 1
+            self.rewardHistory = mx.nd.concat(self.rewardHistory, newRewardHistory, dim = 0)
         ## do the normalization
 #        pdb.set_trace()
-        nr = [(v - np.mean(self.rewardHistory['rewards']))   / (np.std(self.rewardHistory['episode'])    + 1e-7) for v in discountedReward]
-        na = [(v - np.mean(self.rewardHistory['advantages'])) / (np.std(self.rewardHistory['advantages']) + 1e-7) for v in advantages]        
+        rewHnp = self.rewardHistory.asnumpy() ## unfortunately no std method for ndArray
+        nr = (discountedReward - self.rewardHistory[:,1].mean()) / (rewHnp[:,1].std() + 1e-7)
+        na = (advantages - self.rewardHistory[:,2].mean()) / (rewHnp[:,2].std() + 1e-7)
         return (nr, na)
         
 #    def getDiscountedReward(self, rewards, values, lastValue, t, ga, la):
@@ -168,7 +178,7 @@ class worker(threading.Thread):
                'lossValue': self.meanLoss['value'],
                'lossEntropy': self.meanLoss['entropy'],
                'score': score,
-               'rewards': sum([v.asnumpy() for v in self.rewards])[0,0] / len(self.rewards),
+               'rewards': self.rewards.sum().asscalar() / self.rewards.shape[0],
                'actionDst': actionDst,
                'expTime': self.expTime,
                'gradTime': self.gradTime,
@@ -219,7 +229,10 @@ class worker(threading.Thread):
                 self.states.append(mx.nd.array(self.environment.getNetState()))                 
                 ## do the forward pass for policy and value determination. No label known yet.
                 value, policy = self.net(self.environment.getNetState())
-                self.values.append(value)
+                if self.values is None:
+                    self.values = value[0,0]
+                else:
+                    self.values = mx.nd.concat(self.values, value[0,0], dim = 0)
                 ## store policy. Only validActions allowed. Invalid actions are set to prob 0.
                 allowedPolicies = mx.nd.zeros_like(policy)
                 validIdx = np.where(self.environment.getValidActions())[0]
@@ -232,10 +245,11 @@ class worker(threading.Thread):
                     allowedPolicies = allowedPolicies / allowedPolicies.sum()
                 self.policies.append(mx.nd.sample_multinomial(data  = allowedPolicies,
                                                               shape = 1))
-                ## apply action on state. Important before update
                 self.environment.update(self.policies[-1].asnumpy())
-                ## store reward and value as mx.nd.arrays
-                self.rewards.append(mx.nd.array([[self.environment.getLastReward()]]))
+                if self.rewards is None:
+                    self.rewards = mx.nd.array([self.environment.getLastReward()])
+                else:
+                    self.rewards = mx.nd.concat(self.rewards, mx.nd.array([self.environment.getLastReward()]), dim = 0)
                 ## if a part of an episode is finished, we need to reset the net, e.g. one ball in Pong
                 self.resetTrigger.append(self.environment.isPartDone())
                 if self.resetTrigger[-1]: self.net.reset()
@@ -269,7 +283,7 @@ class worker(threading.Thread):
                     discountedReward = self.getDiscountedReward(lastValue)
                     ts4 = time.time()
                     self.rewardTime += ts4 - ts3
-                    advantages = [r - v for (r, v) in zip(discountedReward, self.values)]
+                    advantages = (discountedReward - self.values)
                     ts5 = time.time()
                     self.advantageTime += ts5 - ts4
                     ## normalize
@@ -326,8 +340,8 @@ class worker(threading.Thread):
                     ## make sure to reset model to continue collecting experience
                     self.net.reset(initStates)
                     ## clear memory
-                    self.rewards     = []
-                    self.values      = []
+                    self.rewards     = None
+                    self.values      = None
                     self.states      = []
                     self.policies    = []
                     self.resetTrigger= []

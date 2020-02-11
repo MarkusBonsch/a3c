@@ -28,7 +28,7 @@ class mainThread:
     
     A log, essentially a list where the workers can enter train metrics
     """    
-    def __init__(self, netMaker, envMaker, configFile, outputDir = None, saveInterval = 200, verbose = False):
+    def __init__(self, netMaker, envMaker, configFile):
         """
         Sets up a parameter server accorfing to a config.
         Args:
@@ -37,10 +37,6 @@ class mainThread:
                                  Last block must be a3cOutput
             envMaker(function): creates the game environment.
             configFile(string): path to the config file
-            outputDir (string): if None, no output is saved. Otherwise, the model and log are saved every 200 games.
-            saveInterval (int): model will be saved after saveInterval episodes.
-            verbose (bool): whether to store extended log with gradient and parameter info
-            
         """
         self.log = pd.DataFrame(columns = ['workerId','step','updateSteps','gamesFinished',
                                            'loss','lossPolicy','lossValue','lossEntropy',
@@ -48,9 +44,10 @@ class mainThread:
         self.extendedLog  = pd.DataFrame(columns = ['workerId','gamesFinished','gradMean',
                                                      'gradSd','actions','initialState','paramMean'])
         self.gameCounter = 0
-        self.outputDir = outputDir
-        self.saveInterval =saveInterval
         self.readConfig(configFile)
+        self.outputDir = self.cfg['outputDir']
+        self.saveInterval =self.cfg['saveInterval']
+        
         
         self.envMaker = envMaker
         self.environment = self.envMaker()
@@ -66,7 +63,7 @@ class mainThread:
                              optimizerArgs = self.cfg['optimizerArgs'])
         if self.cfg['trainerFile'] is not None:
             self.net.trainer.load_states(self.cfg['trainerFile'])
-        self.verbose = verbose
+        self.verbose = self.cfg['verbose']
         
     def readConfig(self, configFile):
         """
@@ -75,7 +72,7 @@ class mainThread:
             configFile(str): path to the config file
         """
         with open(configFile, "r") as f:
-            self.cfg = yaml.load(f)
+            self.cfg = yaml.safe_load(f)
         
     def run(self):
         """
