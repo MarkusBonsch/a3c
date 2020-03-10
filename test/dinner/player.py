@@ -1,66 +1,55 @@
+#!/usr/bin/env python2
+
 # -*- coding: utf-8 -*-
 """
-Created on Sat Dec 29 08:29:53 2018
+Created on Mon May 28 22:08:43 2018
 
 @author: markus
 """
-
 import sys
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/a3c/src')
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/a3c/test/pong')
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/plotting')
-
-from pong_env import pong_env
-import mxnet as mx
+sys.path.insert(0,'dinnerTest/src')
+sys.path.insert(0,'a3c/src')
+sys.path.insert(0,'a3c/test/dinner')
+from dinnerEvent import dinnerEvent
+from a3cTableAssigner import a3cTableAssigner
+import pandas as pd
+from datetime import datetime
+import statistics
 import numpy as np
-import pdb
-import time
-import mxnetTools as mxT
-## load model
-params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-symbol.json",
-                                      param_file  = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-0001.params",
-                                      input_names = ['data'])
-net = mxT.a3cHybridSequential(useInitStates= True)
-net.add(mx.gluon.nn.Conv2D(channels = 32, kernel_size = (3,3), strides = (2,2), padding = (1,1), activation = None, prefix = "c1"))
-net.add(mx.gluon.nn.ELU())
-net.add(mx.gluon.nn.Conv2D(channels = 32, kernel_size = (3,3), strides = (2,2), padding = (1,1), activation = None, prefix = "c2"))
-net.add(mx.gluon.nn.ELU())
-net.add(mx.gluon.nn.Conv2D(channels = 32, kernel_size = (3,3), strides = (2,2), padding = (1,1), activation = None, prefix = "c3"))
-net.add(mx.gluon.nn.ELU())
-net.add(mx.gluon.nn.Conv2D(channels = 32, kernel_size = (3,3), strides = (2,2), padding = (1,1), activation = None, prefix = "c4"))
-net.add(mx.gluon.nn.ELU())
-net.add(mx.gluon.nn.Flatten())
-net.add(mxT.a3cLSTM(mx.gluon.rnn.LSTMCell(256, prefix = 'lstm_')))
-net.add(mx.gluon.nn.ELU())
-net.add(mxT.a3cOutput(n_policy = 3, prefix = ""))
-net.initialize(init = mx.initializer.Xavier(magnitude = 0.1), ctx= mx.cpu())
 
-net.copyParams(fromNet=params)
+excel_file = pd.ExcelFile('/home/markus/Documents/Nerding/python/a3c/test/dinner/data/dinnerTest50NoIntolerance.xlsx')
+netDir = '/home/markus/Documents/Nerding/python/a3c/test/dinner/test50noPadnoIntolerance_continued/final'
+#finalDinnerLocation=xl.sheet_names[0]
+dinner = pd.read_excel(excel_file,'teams')
+finalPartyLocation = pd.read_excel(excel_file,'final_party_location',header=None)
+dinnerTime = datetime(2018, 07, 01, 20, 0, 0)
 
-net.hybridize()
-                                
+randEvent = dinnerEvent(dinnerTable = dinner, 
+                      finalPartyLocation=finalPartyLocation, 
+                      dinnerTime=dinnerTime, travelMode='simple', shuffleTeams = False, padSize = 50,
+                      tableAssigner = a3cTableAssigner,
+                      assignerArgs = {'netDir': netDir, 'random': True})
 
-env = pong_env(seqLength = 1, nBallsEpisode=20)
+myEvent = dinnerEvent(dinnerTable = dinner, 
+                      finalPartyLocation=finalPartyLocation, 
+                      dinnerTime=dinnerTime, travelMode='simple', shuffleTeams = False, padSize = 50,
+                      tableAssigner = a3cTableAssigner,
+                      assignerArgs = {'netDir': netDir, 'random': False})
 
-env.reset()
-net.reset()
-state = env.getNetState()
-env.env.render()
-done = False
-step = 0
-while step < 1:
-    ## get action
-    _, policy = net(state)    
-    action = np.argmax(policy.asnumpy())
-    env.update(action)
-    time.sleep(0.01)
-    state = env.getNetState()
-    env.env.render()
-    if env.isPartDone():
-        net.reset()
-    if env.isDone(): 
-        env.reset()
-        net.reset()
-        step +=1
-    
-    
+randScores = []
+myScores = []
+for i in range(1000):
+    randTest = randEvent.assign(repCourseAssign = 1, 
+                                repTableAssign = 0)
+    randScores.append(randTest[1][0,4])
+    myTest = myEvent.assign(repCourseAssign = 1, 
+                                repTableAssign = 0)
+    myScores.append(myTest[1][0,4])
+
+print statistics.mean(myScores)
+print statistics.mean(randScores)
+print statistics.stdev(myScores)
+print statistics.stdev(randScores)
+
+import scipy
+scipy.stats.ttest_ind(np.array(myScores), np.array(randScores))

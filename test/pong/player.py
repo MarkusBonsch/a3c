@@ -17,8 +17,8 @@ import pdb
 import time
 import mxnetTools as mxT
 ## load model
-params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-symbol.json",
-                                      param_file  = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-0001.params",
+params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "/home/markus/Documents/Nerding/python/a3c/test/pong/array_continued2/960/net-symbol.json",
+                                      param_file  = "/home/markus/Documents/Nerding/python/a3c/test/pong/array_continued2/960/net-0001.params",
                                       input_names = ['data'])
 net = mxT.a3cHybridSequential(useInitStates= True)
 net.add(mx.gluon.nn.Conv2D(channels = 32, kernel_size = (3,3), strides = (2,2), padding = (1,1), activation = None, prefix = "c1"))

@@ -104,26 +104,24 @@ class mainThread:
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['loss'],
+                        x = thisData['gamesFinished'].astype(int),
+                        y = thisData['loss'].astype(float),
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))  
         maxY = thisData['loss'].quantile(0.9)
         minY = thisData['loss'].min()
         out = pi.plotlyInterface(data)
-        out.fig.update_layout(
-                yaxis = go.layout.YAxis(
-                            range = [minY, maxY]))
+#        out.fig.update_layout(
+#                yaxis = go.layout.YAxis(
+#                            range = [minY, maxY]))
         out.plotToFile(os.path.join(dirname, 'losses.html'))
         
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['lossValue'],
@@ -134,16 +132,15 @@ class mainThread:
         maxY = thisData['lossValue'].quantile(0.9)
         minY = thisData['lossValue'].min()
         out = pi.plotlyInterface(data)
-        out.fig.update_layout(
-                yaxis = go.layout.YAxis(
-                            range = [minY, maxY]))
+#        out.fig.update_layout(
+#                yaxis = go.layout.YAxis(
+#                            range = [minY, maxY]))
         out.plotToFile(os.path.join(dirname, 'lossesValue.html'))
         
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['lossPolicy'],
@@ -153,16 +150,15 @@ class mainThread:
         maxY = thisData['lossPolicy'].quantile(0.9)
         minY = thisData['lossPolicy'].min()
         out = pi.plotlyInterface(data)
-        out.fig.update_layout(
-                yaxis = go.layout.YAxis(
-                            range = [minY, maxY]))
+#        out.fig.update_layout(
+#                yaxis = go.layout.YAxis(
+#                            range = [minY, maxY]))
         out.plotToFile(os.path.join(dirname, 'lossesPolicy.html'))
         
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['lossEntropy'],
@@ -172,16 +168,15 @@ class mainThread:
         maxY = thisData['lossEntropy'].quantile(0.9)
         minY = thisData['lossEntropy'].min()
         out = pi.plotlyInterface(data)
-        out.fig.update_layout(
-                yaxis = go.layout.YAxis(
-                            range = [minY, maxY]))
+#        out.fig.update_layout(
+#                yaxis = go.layout.YAxis(
+#                            range = [minY, maxY]))
         out.plotToFile(os.path.join(dirname, 'lossesEntropy.html'))
         
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['score'],
@@ -193,8 +188,7 @@ class mainThread:
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['step'],
@@ -206,8 +200,7 @@ class mainThread:
         data = []
         wId = np.unique(self.log['workerId'])[0]
         thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-        thisData.sort_values(['step'])
-        thisData.drop(thisData.index[0])
+        thisData = thisData.sort_values(['step'])
         data.append(go.Scatter(
                 x = thisData['step'],
                 y = thisData['expTime'],
@@ -259,8 +252,7 @@ class mainThread:
         data = []
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData.sort_values(['gamesFinished'])
-            thisData.drop(thisData.index[0])
+            thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['totalTime'],

@@ -18,7 +18,7 @@ import mxnet as mx
 from mainThread import mainThread as mT
 
 def pongMaker():
-    return pong_env(seqLength=1, nBallsEpisode=5, useSeqLength=False)
+    return pong_env(seqLength=1, nBallsEpisode=20, useSeqLength=False)
 
 def netMaker():
     net = mxT.a3cHybridSequential(useInitStates= True)

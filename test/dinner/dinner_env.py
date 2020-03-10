@@ -7,14 +7,17 @@ Created on Tue Mar 27 17:51:36 2018
 
 Everything around the state: reward update, etc.
 """
+import sys
 sys.path.insert(0,'/home/markus/Documents/Nerding/python/dinnerTest/src')
 
 import environment as env
+import pdb
 import numpy as np
 import mxnet as mx
 from state import state
 from assignDinnerCourses import assignDinnerCourses
 from randomDinnerGenerator import randomDinnerGenerator
+from datetime import datetime
 
 from datetime import datetime
 
@@ -27,7 +30,28 @@ class dinner_env(env.environment):
         self.isDone ## True if all seats are filled and the game is over.
         
     """
-    def __init__(self, seqLength, useSeqLength = False, nTeams = 20):
+    def __init__(self, seqLength, useSeqLength = False, 
+                 nTeams = 50
+                 ,padSize = 50
+                 ,shuffleTeams = False
+                 ,restrictValidActions = True
+                 ,centerAddress={'lat':53.551086, 'lng':9.993682}
+                 ,radiusInMeter=5000
+                 ,dinnerTime = datetime(2020, 07, 01, 20)
+                 ,wishStarterProbability=0.3
+                 ,wishMainCourseProbability=0.4
+                 ,wishDessertProbability=0.3
+                 ,rescueTableProbability=0.5
+                 ,meatIntolerantProbability=0
+                 ,animalProductsIntolerantProbability=0
+                 ,lactoseIntolerantProbability=0
+                 ,fishIntolerantProbability=0
+                 ,seafoodIntolerantProbability=0
+                 ,dogsIntolerantProbability=0
+                 ,catsIntolerantProbability=0
+                 ,dogFreeProbability=0
+                 ,catFreeProbability=0
+                 ,travelMode = 'simple'):
         """ 
         set up the basic environment
         actions are reduced to 3: move up, move down and wait.
@@ -36,12 +60,32 @@ class dinner_env(env.environment):
             seqLength(int): sequence length. 0 if no rnn is present.
             useSeqLength(bool): if True, getNetState returns a list, if False, a single state.
         """
-        self.env = gym.make('PongDeterministic-v0')
-        self.validActions = np.ones(shape = (3))
+        self.travelMode = travelMode
+        self.dinnerTime = dinnerTime
+        self.padSize = padSize
+        self.shuffleTeams = shuffleTeams
+        self.restrictValidActions = restrictValidActions
+        self.rawGen = randomDinnerGenerator(numberOfTeams=nTeams
+                                    ,centerAddress=centerAddress
+                                    ,radiusInMeter=radiusInMeter
+                                    ,wishStarterProbability=wishStarterProbability
+                                    ,wishMainCourseProbability=wishMainCourseProbability
+                                    ,wishDessertProbability=wishDessertProbability
+                                    ,rescueTableProbability=rescueTableProbability
+                                    ,meatIntolerantProbability=meatIntolerantProbability
+                                    ,animalProductsIntolerantProbability=animalProductsIntolerantProbability
+                                    ,lactoseIntolerantProbability=lactoseIntolerantProbability
+                                    ,fishIntolerantProbability=fishIntolerantProbability
+                                    ,seafoodIntolerantProbability=seafoodIntolerantProbability
+                                    ,dogsIntolerantProbability=dogsIntolerantProbability
+                                    ,catsIntolerantProbability=catsIntolerantProbability
+                                    ,dogFreeProbability=dogFreeProbability
+                                    ,catFreeProbability=catFreeProbability,
+                                    checkValidity = False)
+        self.validActions = np.zeros(shape = (self.padSize))
         self.state = 0
         self.useSeqLength = useSeqLength
         self.netState = [None] * seqLength
-        self.nBallsEpisode = nBallsEpisode
         self.reset()
         
     def getRawState(self):    
@@ -50,32 +94,13 @@ class dinner_env(env.environment):
         """
         return self.state
         
-#    def raw2singleNetState(self):
-#        """
-#        converts numpy array to apropriate mxnet nd array
-#        """
-#        state = self.state[35:209,0:159] ## crop unnecessary parts
-#        state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY) ## convert to greyscale
-#        state = cv2.resize(src = state, dsize = (48,48), interpolation = cv2.INTER_AREA) ## resize
-#        state = np.expand_dims(state, 0)
-#        state = np.expand_dims(state, 0) ## additional axes for batch and channels
-#        state = mx.nd.array(state)
-#        return(state)
-        
     def raw2singleNetState(self):
         """
         converts numpy array to apropriate mxnet nd array
         """
-        state = self.state[34:193,0:159] ## crop unnecessary parts
-        origState = state
-        ## convert to black and white, assuming constant background color
-        bg = (144,72,17)
-        state = np.ones_like(origState[:,:,0]) * 255
-        state[(origState[:,:,0] == bg[0]) & (origState[:,:,1] == bg[1]) & (origState[:,:,2] == bg[2])] = 0
-        state = cv2.resize(src = state, dsize = (80,80), interpolation = cv2.INTER_NEAREST) ## resize
-        state = np.expand_dims(state, 0)
-        state = np.expand_dims(state, 0) ## additional axes for batch and channels
-        state = mx.nd.array(state)
+        state = mx.nd.array(self.state).reshape(-1) ## 1d array
+        state = mx.nd.expand_dims(state, 0) ## dummz axes for batch and channel
+        state = mx.nd.expand_dims(state, 0)
         return(state)
     
     def getNetState(self):
@@ -99,47 +124,63 @@ class dinner_env(env.environment):
     def reset(self):
         """
         resets the environment to starting conditions, i.e. starts a new game
+ 
         """
-        self.state = self.env.reset()
+        rawData = self.rawGen.generateDinner()
+        assigner = assignDinnerCourses(rawData[0], rawData[1])
+        dinnerAssigned = assigner.assignDinnerCourses(random = False)
+        self.env = state(data = dinnerAssigned, 
+                         dinnerTime = self.dinnerTime, 
+                         travelMode = self.travelMode, 
+                         padSize = self.padSize,
+                         shuffleTeams = self.shuffleTeams)
+        self.env.initNormalState()
+        self.validActions = 0 * self.validActions
+        self.validActions[self.env.getValidActions()] = 1
+        if not self.restrictValidActions:
+            self.validActions[:] = 1
+        self.state = self.env.getState()
         self.netState = [self.raw2singleNetState()] * len(self.netState)
         self.is_done = False
-        self.is_partDone = False
+        self.is_partDone = False # is set to True if all non-rescue teams have been assigned.
         self.score = 0
         self.lastReward = -np.Inf
-        self.ballsPlayed = 0
-        
     
     def update(self, action):
         """ 
-        Updates the environment accoring to an action.
+        Updates the environment according to an action.
         Stores relevant returns
-        ATTENTION: game is artificially ended
         args: 
             action (float): the id of the action to be chosen
         """
         
         action = int(action)
-        if action >= len(self.validActions):
-            raise   ValueError("invalid action: " + str(action))
-        if not self.validActions[action]:
-            raise   ValueError("invalid action: " + str(action))
-        
-        ## convert 3 actions to 6 actions of env.
-        ## 0, 2 and 3 are all the moves
-        if action == 1:
-            action = 3
-        tmp = self.env.step(action)
-        self.state = tmp[0]
+        isValidAction = action in self.env.getValidActions()
+        if not isValidAction:
+            if self.restrictValidActions:
+                raise   ValueError("invalid action: " + str(action))
+            else:
+                self.is_partDone = True
+                self.is_done = True
+                self.lastReward = - self.env.alphaMeet * self.env.getMissingTeamScore()[1]
+                self.score = self.env.getScore()
+                return None
+        self.lastReward = self.env.getRewards()[action] ## important before update
+        self.env.update(action)
+        self.score = self.env.getScore()
+        if self.env.isDone():
+            ## check if it is fully done or rescue Tables need to be assigned.
+            if self.isPartDone(): ## We were already in rescue mode
+                self.is_done = True
+            else: ## we still have to do the rescue mode
+                self.env.initRescueState()
+                self.is_partDone = True
+                self.is_done = self.env.isDone()
+        if self.restrictValidActions:
+            self.validActions *= 0
+            self.validActions[self.env.getValidActions()] = 1
+        self.state = self.env.getState()
         self.netState = self.netState[:-1] + [self.raw2singleNetState()]
-        self.lastReward = tmp[1]
-        ## whenever reward is -1 or 1, a ball is lost
-        if self.lastReward != 0: 
-            self.ballsPlayed +=1
-            self.is_partDone = True
-        else: self.is_partDone = False
-        if tmp[2] or self.ballsPlayed == self.nBallsEpisode:
-            self.is_done = True
-        self.score += self.lastReward
             
     def isDone(self):
         return self.is_done

@@ -33,8 +33,8 @@ Dinner1 = randomDinnerGenerator(numberOfTeams=20
                                     ,catsIntolerantProbability=0
                                     ,dogFreeProbability=0
                                     ,catFreeProbability=0
-                                    ,verbose=1
-                                    ,checkValidity = False)
+                                    ,verbose=0
+                                    ,checkValidity = True)
 dinner,finalPartyLocation=Dinner1.generateDinner()
 
 assigner = assignDinnerCourses(dinner, finalPartyLocation)

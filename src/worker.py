@@ -331,9 +331,9 @@ class worker(threading.Thread):
                     self.totalTime = ts - ts0
                     ## store performance indicators after game is finished 
                     ts3 = time.time()
-                    self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( verbose=True) )                        
+                    self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( verbose=True), sort = True)                        
                     if self.verbose:
-                        self.mainThread.extendedLog = self.mainThread.extendedLog.append(self.collectDiagnosticInfo() )                        
+                        self.mainThread.extendedLog = self.mainThread.extendedLog.append(self.collectDiagnosticInfo(), sort=True)                        
                     self.logTime += time.time()-ts3
                     ## clear local gradients.
                     self.net.clearGradients()
