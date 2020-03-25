@@ -62,8 +62,9 @@ class worker(threading.Thread):
         self.verbose = mainThread.verbose
         self.rewards     = None
         self.values      = None
+        self.policyOutput      = []
         self.states      = []
-        self.policies    = []
+        self.chosenPolicy    = []
         self.resetTrigger= []
         self.rewardHistory = None
         
@@ -164,7 +165,7 @@ class worker(threading.Thread):
 #        if any([type(v) == int for v in self.rewards]):
 #            pdb.set_trace()
         ## count action appearances
-        policies = [v.asnumpy().item() for v in self.policies]
+        policies = [v.asnumpy().item() for v in self.chosenPolicy]
         actionDst = "" 
         for i in range(len(self.environment.getValidActions())):
             actionDst += "{0}: {1}; ".format(i, policies.count(i))
@@ -233,6 +234,8 @@ class worker(threading.Thread):
                     self.values = value[0,0]
                 else:
                     self.values = mx.nd.concat(self.values, value[0,0], dim = 0)
+                ## store policy output for PPO
+                self.policyOutput.append(policy)
                 ## store policy. Only validActions allowed. Invalid actions are set to prob 0.
                 allowedPolicies = mx.nd.zeros_like(policy)
                 validIdx = np.where(self.environment.getValidActions())[0]
@@ -243,9 +246,9 @@ class worker(threading.Thread):
                 else:
                     ## renormalize to 1
                     allowedPolicies = allowedPolicies / allowedPolicies.sum()
-                self.policies.append(mx.nd.sample_multinomial(data  = allowedPolicies,
+                self.chosenPolicy.append(mx.nd.sample_multinomial(data  = allowedPolicies,
                                                               shape = 1))
-                self.environment.update(self.policies[-1].asnumpy())
+                self.environment.update(self.chosenPolicy[-1].asnumpy())
                 if self.rewards is None:
                     self.rewards = mx.nd.array([self.environment.getLastReward()])
                 else:
@@ -304,11 +307,11 @@ class worker(threading.Thread):
                         ## determine advantages. All are set to 0, except the one 
                         ## for the chosen policy
                         advantageArray = mx.nd.zeros(shape = policy.shape)
-                        advantageArray[0,self.policies[t]] = advantages[t]
+                        advantageArray[0,self.chosenPolicy[t]] = advantages[t]
                         ## do forward and backward pass to accumulate gradients
                         with mx.autograd.record(): ## per default in "is_train" mode
                             value, policy = self.net(self.states[t])
-                            loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantageArray)
+                            loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantageArray, self.policyOutput[t])
                         loss.backward() ## grd_req is add, so gradients are accumulated       
                         ## reset model if necessary
                         if self.resetTrigger[t]: self.net.reset()                        
@@ -342,8 +345,9 @@ class worker(threading.Thread):
                     ## clear memory
                     self.rewards     = None
                     self.values      = None
+                    self.policyOutput = []
                     self.states      = []
-                    self.policies    = []
+                    self.chosenPolicy    = []
                     self.resetTrigger= []
                     
             

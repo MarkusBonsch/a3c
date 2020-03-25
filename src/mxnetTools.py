@@ -73,7 +73,7 @@ class a3cLoss(gluon.loss.Loss):
     
     def __init__(self, valueLossScale = 0.5, entropyLossScale = 0.01, weight = None, batch_axis = None, **kwargs):
         """
-        Loss function for a3c
+        Loss function for a3c with ppo
         Inputs:
             valueLossScale (float): the scaling factor for the value loss
             entropyLossScale (float): the scaling factor for the policy entropy loss
@@ -87,10 +87,12 @@ class a3cLoss(gluon.loss.Loss):
         self.policyLoss = 0
         self.entroplyLoss = 0
         
-    def hybrid_forward(self, F, value, policy, valueLabel, policyLabel):
+    def hybrid_forward(self, F, value, policy, valueLabel, advantageLabel, policyOldLabel):
         self. valueLoss = self.vSc * F.nansum(F.square((valueLabel - value)),
                                    name = "valueLoss")
-        self.policyLoss = -F.nansum(F.log(policy + 1e-7) * policyLabel,
+        ppoRatio = F.exp(F.log(policy + 1e-7) - F.log(policyOldLabel + 1e-7))
+        
+        self.policyLoss = -F.nansum(F.minimum(ppoRatio * advantageLabel, F.clip(ppoRatio, 0.8, 1.2) * advantageLabel),
                                     name = 'policyLoss')
         self.entropyLoss = self.eSc * F.nansum(F.log(policy + 1e-7) * policy,
                                                name = 'entropyLoss')
@@ -120,6 +122,7 @@ class a3cLoss(gluon.loss.Loss):
         """
         return self.getValueLoss() + self.getPolicyLoss() + self.getEntropyLoss()
                                             
+    
 
 class a3cHybridSequential(mx.gluon.nn.HybridSequential):
     """
@@ -166,7 +169,7 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
         ## the trainer will complain
         with mx.autograd.record():
             value, policy = self.__call__(dummyData)
-            loss = self.lossFct[0][0](value, policy, value + 1, policy + 1)
+            loss = self.lossFct[0][0](value, policy, value + 1, policy + 1, policy * 0.9)
         loss.backward()
             
         for name in self.collect_params().keys():
