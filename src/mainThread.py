@@ -266,6 +266,18 @@ class mainThread:
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'timeOverEpisode.html'))
         
+        data = []
+        for wId in np.unique(self.log['workerId']):
+            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
+            thisData = thisData.sort_values(['gamesFinished'])
+            data.append(go.Scatter(
+                        x = thisData['gamesFinished'],
+                        y = thisData['rewards'],
+                        mode = 'lines+markers',
+                        name = "worker {0}".format(wId)))        
+        out = pi.plotlyInterface(data)
+        out.plotToFile(os.path.join(dirname, 'averageRewards.html'))
+        
     def save(self, outFolder, savePlots = True, overwrite = False):
         """ 
         saves the model and the config and plots if required

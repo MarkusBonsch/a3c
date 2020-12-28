@@ -31,17 +31,17 @@ class dinner_env(env.environment):
         
     """
     def __init__(self, seqLength, useSeqLength = False, 
-                 nTeams = 10
-                 ,padSize = 10
+                 nTeams = 12
+                 ,padSize = 12
                  ,shuffleTeams = False
                  ,restrictValidActions = True
                  ,centerAddress={'lat':53.551086, 'lng':9.993682}
                  ,radiusInMeter=5000
                  ,dinnerTime = datetime(2020, 7, 1, 20)
-                 ,wishStarterProbability=0.3
-                 ,wishMainCourseProbability=0.4
-                 ,wishDessertProbability=0.3
-                 ,rescueTableProbability=0.5
+                 ,wishStarterProbability=1/3
+                 ,wishMainCourseProbability=1/3
+                 ,wishDessertProbability=1/3
+                 ,rescueTableProbability=1
                  ,meatIntolerantProbability=0
                  ,animalProductsIntolerantProbability=0
                  ,lactoseIntolerantProbability=0
@@ -49,8 +49,8 @@ class dinner_env(env.environment):
                  ,seafoodIntolerantProbability=0
                  ,dogsIntolerantProbability=0
                  ,catsIntolerantProbability=0
-                 ,dogFreeProbability=0
-                 ,catFreeProbability=0
+                 ,dogFreeProbability=1
+                 ,catFreeProbability=1
                  ,travelMode = 'simple'):
         """ 
         set up the basic environment
@@ -97,7 +97,19 @@ class dinner_env(env.environment):
         state = mx.nd.expand_dims(state, 0) ## dummz axes for batch and channel
         state = mx.nd.expand_dims(state, 0)
         return(state)
-            
+        
+    def raw2singleNetStateValid(self):
+        """
+        test with only valid actions as state
+        """
+        state = mx.nd.array(self.validActions) * 0
+        if(len(self.env.getValidActions()) == 0):
+            return state
+        state[self.env.getValidActions()] = 1
+        state = mx.nd.expand_dims(state, 0) ## dummz axes for batch and channel
+        state = mx.nd.expand_dims(state, 0)
+        return(state)
+    
     def getNetState(self):
         """
         Returns the state as required as input for the a3cNet
@@ -158,14 +170,17 @@ class dinner_env(env.environment):
             if self.restrictValidActions:
                 raise   ValueError("invalid action: " + str(action))
             else:
-                self.is_partDone = True
+                self.lastReward = -1
+                self.score += self.lastReward
                 self.is_done = True
-                self.lastReward = - self.env.alphaMeet * self.env.getMissingTeamScore()[1]
-                self.score = self.env.getScore()
+                self.is_partDone = True
                 return None
-        self.lastReward = self.env.getRewards()[action] ## important before update
+        ## if we reach here, we had a valid action!
+        self.lastReward = 4
+#        # add number of new teams met to reward
+#        self.lastReward += self.env.getNewPersonsMet()[action]
         self.env.update(action)
-        self.score = self.env.getScore()
+        self.score += self.lastReward
         if self.env.isDone():
             ## check if it is fully done or rescue Tables need to be assigned.
             if self.isPartDone(): ## We were already in rescue mode
