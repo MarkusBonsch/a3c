@@ -8,7 +8,7 @@ Created on Tue Mar 27 17:51:36 2018
 Everything around the state: reward update, etc.
 """
 import sys
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/dinnerTest/src')
+sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/dinnerTest/src')
 
 import environment as env
 import pdb
@@ -174,6 +174,7 @@ class dinner_env(env.environment):
                 self.score += self.lastReward
                 self.is_done = True
                 self.is_partDone = True
+                self.env.done = True
                 return None
         ## if we reach here, we had a valid action!
         self.lastReward = 4
