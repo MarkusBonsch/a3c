@@ -6,9 +6,9 @@ Created on Sat Dec 29 08:29:53 2018
 """
 
 import sys
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/a3c/src')
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/a3c/test/pong')
-sys.path.insert(0,'/home/markus/Documents/Nerding/python/plotting')
+sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/a3c/src')
+sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/a3c/test/pong')
+sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/plotting')
 #import os
 #os.chdir("Documents/Nerding/python/")
 
@@ -35,15 +35,15 @@ def netMaker():
     net.add(mx.gluon.nn.ELU())
     net.add(mxT.a3cOutput(n_policy = 3, prefix = ""))
     net.initialize(init = mx.initializer.Xavier(magnitude = 0.1), ctx= mx.cpu())
-    ## set inital parameters from per-trained model
-    params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-symbol.json",
-                                      param_file  = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-0001.params",
-                                      input_names = ['data'])
-    net.copyParams(fromNet=params)
+    # ## set inital parameters from per-trained model
+    # params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-symbol.json",
+    #                                   param_file  = "/home/markus/Documents/Nerding/python/a3c/test/pong/array/1200/net-0001.params",
+    #                                   input_names = ['data'])
+    # net.copyParams(fromNet=params)
     return(net)
     
 mainThread = mT(netMaker   = netMaker , 
                 envMaker   = pongMaker, 
-                configFile = 'a3c/test/pong/pong.cfg')
+                configFile = 'test/pong/pong.cfg')
 
 mainThread.run()

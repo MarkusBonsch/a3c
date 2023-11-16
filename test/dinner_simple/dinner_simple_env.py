@@ -31,8 +31,8 @@ class dinner_env(env.environment):
         
     """
     def __init__(self, seqLength, useSeqLength = False, 
-                 nTeams = 12
-                 ,padSize = 12
+                 nTeams = 9
+                 ,padSize = 9
                  ,shuffleTeams = False
                  ,restrictValidActions = True
                  ,centerAddress={'lat':53.551086, 'lng':9.993682}
