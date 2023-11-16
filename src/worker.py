@@ -68,7 +68,7 @@ class worker(threading.Thread):
         self.resetTrigger= []
         self.rewardHistory = None
         
-    def getDiscountedReward(self, lastValue):
+    def getDiscountedRewardNormal(self, lastValue):
         """
         calculates the reward
         Args:
@@ -86,6 +86,36 @@ class worker(threading.Thread):
         ## delete dummy first element and reverse again
         out = out[1:]
         out = out[::-1]
+        return(out)
+
+    def getDiscountedReward(self, lastValue, la = 0.96):
+        """
+        calculates the advantage according to generalized advantage estimation
+        Args:
+           lastValue(float): value of step after last action
+           la: hyperparameter. Make it 1 for normal reward estimation
+        Returns:
+           discounted reward
+        """
+        ### calculates advantage first using GAE. Then in the last step reward is calculated
+        timeLeft = self.rewards.shape[0]
+        GAE    = 0
+        ndLastValue = mx.nd.zeros(shape = (1))
+        ndLastValue[0] = lastValue
+        values = mx.nd.concat(self.values, ndLastValue, dim = 0)
+        out    = mx.nd.zeros(shape = (1))
+        for n in reversed(range(timeLeft)):
+            if self.resetTrigger[n]: 
+                GAE = 0
+                values[n+1] = 0 ## value after game ends is 0
+            delta = self.rewards[n] + self.rewardDiscount * values[n+1] - values[n]
+            GAE   = self.rewardDiscount * la * GAE + delta
+            out   = mx.nd.concat(out, GAE, dim = 0)
+        ## delete dummy first element and reverse again
+        out = out[1:]
+        out = out[::-1]
+        ## add values to obtain rewards instead of advantages
+        out = out + self.values
         return(out)
     
     def normalizeRewardAdvantage(self, discountedReward, advantages, nEpisodes = 5):
@@ -124,31 +154,7 @@ class worker(threading.Thread):
         rewHnp = self.rewardHistory.asnumpy() ## unfortunately no std method for ndArray
         nr = (discountedReward - self.rewardHistory[:,1].mean()) / (rewHnp[:,1].std() + 1e-7)
         na = (advantages - self.rewardHistory[:,2].mean()) / (rewHnp[:,2].std() + 1e-7)
-        return (nr, na)
-        
-#    def getDiscountedReward(self, rewards, values, lastValue, t, ga, la):
-#        """
-#        calculates the advantage according to generalized advantage estimation
-#        Args:
-#            rewards (list): rewards of all timesteps after t
-#            values(list):   values of all timesteps after t
-#            lastValue(float): value of step after last action
-#            t(int): timestep. starts with 0
-#            ga, la: hyperparameters
-#        Returns:
-#            discounted reward
-#        """
-#        timeLeft = len(rewards) - t
-#        values.append(lastValue)
-#        R = 0
-#        for n in range(timeLeft):
-#            R_n = ga**(n+1) * values[t + n+1]
-#            for l in reversed(range(n+1)):
-#                R_n = R_n + ga**l * rewards[t + l]
-#            R = R + la**n * R_n
-#        R = R * (1-la)
-#        return(R)
-#            
+        return (nr, na)           
     
     def getPerformanceIndicators(self, verbose = True):
         """
@@ -191,7 +197,7 @@ class worker(threading.Thread):
                'totalTime': self.totalTime
                }
         if verbose: 
-            print "Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, rewards: {5}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['rewards'])
+            print("Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, rewards: {5}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['rewards']))
         return pd.DataFrame(tmp, index = [self.gamesPlayed])
         
     def collectDiagnosticInfo(self):
@@ -210,7 +216,7 @@ class worker(threading.Thread):
         """
         Do the actual training
         """
-        print "Worker{0} started!".format(self.id)
+        print("Worker{0} started!".format(self.id))
         while(self.gamesPlayed < self.nGames):
         ## loop over the games         
             ## start a new game
@@ -267,12 +273,12 @@ class worker(threading.Thread):
                     if self.updateSteps == 0:
                         self.updateSteps = self.updateFrequency
                     if self.verbose:
-                        print "Worker{0}; game {1}; step {2}; updateSteps {3}!".format(self.id, self.gamesPlayed + 1, self.nSteps, self.updateSteps)
-                        print '\npolicy scores:'
-                        print policy
-                        print 'Allowed policies:'                    
-                        print allowedPolicies
-                        print '\n'
+                        print("Worker{0}; game {1}; step {2}; updateSteps {3}!".format(self.id, self.gamesPlayed + 1, self.nSteps, self.updateSteps))
+                        print('\npolicy scores:')
+                        print(policy)
+                        print('Allowed policies:')
+                        print(allowedPolicies)
+                        print('\n')
                     self.meanLoss = {k:0 for k,v in self.meanLoss.items()}
                     if self.environment.isDone():
                         lastValue = 0
@@ -283,7 +289,7 @@ class worker(threading.Thread):
                     ts3 = time.time()
                     self.gradTime += ts3 - ts2    
                     
-                    discountedReward = self.getDiscountedReward(lastValue)
+                    discountedReward = self.getDiscountedReward(lastValue, la = self.mainThread.cfg['lambda'])
                     ts4 = time.time()
                     self.rewardTime += ts4 - ts3
                     advantages = (discountedReward - self.values)
