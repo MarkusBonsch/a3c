@@ -81,7 +81,7 @@ class mainThread:
     
         ## initialize workers
         workers = []
-        for wId in xrange(self.cfg['nWorkers']):
+        for wId in range(self.cfg['nWorkers']):
             thisWorker = worker(self, id = wId)
             workers.append(thisWorker)
             thisWorker.start()
