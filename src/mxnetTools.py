@@ -94,7 +94,7 @@ class a3cLoss(gluon.loss.Loss):
         
         self.policyLoss = -F.nansum(F.minimum(ppoRatio * advantageLabel, F.clip(ppoRatio, 0.8, 1.2) * advantageLabel),
                                     name = 'policyLoss')
-        self.entropyLoss = - self.eSc * F.nansum(F.log(policy + 1e-7) * policy,
+        self.entropyLoss = self.eSc * F.nansum(F.log(policy + 1e-7) * policy,
                                                name = 'entropyLoss')
         return self.valueLoss + self.policyLoss + self.entropyLoss
     
