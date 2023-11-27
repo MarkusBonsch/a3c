@@ -317,7 +317,7 @@ class worker(threading.Thread):
                         ## do forward and backward pass to accumulate gradients
                         with mx.autograd.record(): ## per default in "is_train" mode
                             value, policy = self.net(self.states[t])
-                            loss = self.net.lossFct[0][0](value, policy, mx.nd.stop_gradient(discountedReward[t]), mx.nd.stop_gradient(advantageArray), mx.nd.stop_gradient(self.policyOutput[t]))
+                            loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantageArray, self.policyOutput[t])
                         loss.backward() ## grd_req is add, so gradients are accumulated       
                         ## reset model if necessary
                         if self.resetTrigger[t]: self.net.reset()                        

@@ -88,11 +88,11 @@ class a3cLoss(gluon.loss.Loss):
         self.entroplyLoss = 0
         
     def hybrid_forward(self, F, value, policy, valueLabel, advantageLabel, policyOldLabel):
-        self. valueLoss = self.vSc * F.nansum(F.square((valueLabel - value)),
+        self. valueLoss = self.vSc * F.nansum(F.square((mx.nd.stop_gradient(valueLabel) - value)),
                                    name = "valueLoss")
-        ppoRatio = F.exp(F.log(policy + 1e-7) - F.log(policyOldLabel + 1e-7))
+        ppoRatio = F.exp(F.log(policy + 1e-7) - F.log(mx.nd.stop_gradient(policyOldLabel + 1e-7)))
         
-        self.policyLoss = -F.nansum(F.minimum(ppoRatio * advantageLabel, F.clip(ppoRatio, 0.8, 1.2) * advantageLabel),
+        self.policyLoss = -F.nansum(F.minimum(ppoRatio * mx.nd.stop_gradient(advantageLabel), F.clip(ppoRatio, 0.8, 1.2) * mx.nd.stop_gradient(advantageLabel)),
                                     name = 'policyLoss')
         self.entropyLoss = self.eSc * F.nansum(F.log(policy + 1e-7) * policy,
                                                name = 'entropyLoss')
