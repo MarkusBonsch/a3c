@@ -181,7 +181,19 @@ class mainThread:
                         x = thisData['gamesFinished'],
                         y = thisData['score'],
                         mode = 'lines+markers',
+                        visible = 'legendonly',
                         name = "worker {0}".format(wId)))        
+        # get average across workers and then moving average over 5 games
+        meanData = self.log
+        meanData = meanData.sort_values(['gamesFinished', 'workerId'])
+        meanData = meanData[(meanData['score'] != -999)].groupby(['gamesFinished'], as_index = False).agg({'score': 'mean'})
+        meanData['meanCol'] = meanData['score'].rolling(5).mean()
+        meanData['meanCol'] = meanData['meanCol'].fillna(0)
+        data.append(go.Scatter(
+                        x = meanData['gamesFinished'],
+                        y = meanData['meanCol'],
+                        mode = 'lines+markers',
+                        name = "moving average"))                
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'scores.html'))
         
@@ -189,11 +201,25 @@ class mainThread:
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData = thisData.sort_values(['gamesFinished'])
+            
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
                         y = thisData['step'],
                         mode = 'lines+markers',
+                        visible = 'legendonly',
                         name = "worker {0}".format(wId)))        
+        # get average across workers and then moving average over 5 games
+        meanData = self.log
+        meanData['step'] = meanData['step'].astype('float32')
+        meanData = meanData.sort_values(['gamesFinished', 'workerId'])
+        meanData = meanData[(meanData['score'] != -999)].groupby(['gamesFinished'], as_index = False).agg({'step': 'mean'})
+        meanData['meanCol'] = meanData['step'].rolling(5).mean()
+        meanData['meanCol'] = meanData['meanCol'].fillna(0)
+        data.append(go.Scatter(
+                        x = meanData['gamesFinished'],
+                        y = meanData['meanCol'],
+                        mode = 'lines+markers',
+                        name = "moving average"))        
         out = pi.plotlyInterface(data)
         out.plotToFile(os.path.join(dirname, 'episodeLengths.html'))
         
