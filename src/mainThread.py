@@ -7,6 +7,7 @@ Created on Sun Dec 23 11:28:01 2018
 from worker import worker
 import yaml
 import pandas as pd
+import copy
 import numpy as np
 import os
 import plotly.graph_objs as go
@@ -184,9 +185,9 @@ class mainThread:
                         visible = 'legendonly',
                         name = "worker {0}".format(wId)))        
         # get average across workers and then moving average over 5 games
-        meanData = self.log
+        meanData = copy.deepcopy(self.log[self.log['score'] != -999])
         meanData = meanData.sort_values(['gamesFinished', 'workerId'])
-        meanData = meanData[(meanData['score'] != -999)].groupby(['gamesFinished'], as_index = False).agg({'score': 'mean'})
+        meanData = meanData.groupby(['gamesFinished'], as_index = False).agg({'score': 'mean'})
         meanData['meanCol'] = meanData['score'].rolling(5).mean()
         meanData['meanCol'] = meanData['meanCol'].fillna(0)
         data.append(go.Scatter(
@@ -209,10 +210,10 @@ class mainThread:
                         visible = 'legendonly',
                         name = "worker {0}".format(wId)))        
         # get average across workers and then moving average over 5 games
-        meanData = self.log
+        meanData = copy.deepcopy(self.log[self.log['score'] != -999])
         meanData['step'] = meanData['step'].astype('float32')
         meanData = meanData.sort_values(['gamesFinished', 'workerId'])
-        meanData = meanData[(meanData['score'] != -999)].groupby(['gamesFinished'], as_index = False).agg({'step': 'mean'})
+        meanData = meanData.groupby(['gamesFinished'], as_index = False).agg({'step': 'mean'})
         meanData['meanCol'] = meanData['step'].rolling(5).mean()
         meanData['meanCol'] = meanData['meanCol'].fillna(0)
         data.append(go.Scatter(
