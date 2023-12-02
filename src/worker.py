@@ -236,13 +236,7 @@ class worker(threading.Thread):
                 self.states.append(mx.nd.array(self.environment.getNetState()))                 
                 ## do the forward pass for policy and value determination. No label known yet.
                 value, policy = self.net(self.environment.getNetState())
-                if self.values is None:
-                    self.values = value[0,0]
-                else:
-                    self.values = mx.nd.concat(self.values, value[0,0], dim = 0)
-                ## store policy output for PPO
-                self.policyOutput.append(policy)
-                ## store policy. Only validActions allowed. Invalid actions are set to prob 0.
+                ## determine chosen policy. Only validActions allowed. Invalid actions are set to prob 0.
                 allowedPolicies = mx.nd.zeros_like(policy)
                 validIdx = np.where(self.environment.getValidActions())[0]
                 allowedPolicies[0, validIdx] = policy[0,validIdx]
@@ -254,6 +248,12 @@ class worker(threading.Thread):
                     allowedPolicies = allowedPolicies / allowedPolicies.sum()
                 self.chosenPolicy.append(mx.nd.sample_multinomial(data  = allowedPolicies,
                                                               shape = 1))
+                ## Store value and probability of chosen policy for loss calculation
+                if self.values is None:
+                    self.values = value[0,0]
+                else:
+                    self.values = mx.nd.concat(self.values, value[0,0], dim = 0)
+                self.policyOutput.append(policy[0, self.chosenPolicy[-1]])
                 self.environment.update(self.chosenPolicy[-1].asnumpy())
                 if self.rewards is None:
                     self.rewards = mx.nd.array([self.environment.getLastReward()])
@@ -280,12 +280,13 @@ class worker(threading.Thread):
                         print(allowedPolicies)
                         print('\n')
                     self.meanLoss = {k:0 for k,v in self.meanLoss.items()}
-                    if self.environment.isDone():
+                    if self.environment.isDone() or self.environment.isPartDone():
                         lastValue = 0
                     else:
                       ## get value of new state after policy update as
                       ## future reward estimate
                       lastValue, _ = self.net(self.environment.getNetState())
+                      lastValue = int(lastValue.asscalar())
                     ts3 = time.time()
                     self.gradTime += ts3 - ts2    
                     
@@ -310,14 +311,12 @@ class worker(threading.Thread):
                     
                     for t in range(self.updateSteps):
                     ## loop over all memory to do the update.
-                        ## determine advantages. All are set to 0, except the one 
-                        ## for the chosen policy
-                        advantageArray = mx.nd.zeros(shape = policy.shape)
-                        advantageArray[0,self.chosenPolicy[t]] = advantages[t]
                         ## do forward and backward pass to accumulate gradients
                         with mx.autograd.record(): ## per default in "is_train" mode
                             value, policy = self.net(self.states[t])
-                            loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantageArray, self.policyOutput[t])
+                            ## extract the prob for the chosen policy from the policy vector
+                            policy = policy[0,self.chosenPolicy[t]]
+                            loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantages[t], self.policyOutput[t])
                         loss.backward() ## grd_req is add, so gradients are accumulated       
                         ## reset model if necessary
                         if self.resetTrigger[t]: self.net.reset()                        
