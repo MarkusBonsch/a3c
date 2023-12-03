@@ -59,6 +59,8 @@ class worker(threading.Thread):
         self.nSteps = 0
         self.rewardDiscount = self.mainThread.cfg['rewardDiscount']
         self.normRange = self.mainThread.cfg['normRange']
+        self.normalizeRewards = self.mainThread.cfg['normalizeRewards']
+        self.normalizeAdvantages = self.mainThread.cfg['normalizeAdvantages']
         self.verbose = mainThread.verbose
         self.rewards     = None
         self.values      = None
@@ -67,6 +69,7 @@ class worker(threading.Thread):
         self.chosenPolicy    = []
         self.resetTrigger= []
         self.rewardHistory = None
+        self.advantageHistory = None
         
     def getDiscountedRewardNormal(self, lastValue):
         """
@@ -118,22 +121,55 @@ class worker(threading.Thread):
         out = out + self.values
         return(out)
     
-    def normalizeRewardAdvantage(self, discountedReward, advantages, nEpisodes = 5):
+    def normalizeAdvantage(self, advantages, nEpisodes = 5):
         """
-        takes discounted reward and advantages and normalizes them
+        takes advantages and normalizes them
         with respect to the nEpisodes last episodes
         Args:
-            discountedReward (ndArray): the discounted reward for each step
             advantages (ndArray): the advantages for each step
             nEpisodes (int): number of episodes that are included in history for normalization
         Returns:
-            ndArray normalized rewards and advantages
+            ndArray normalized advantages
             
-        self.rewardHistory is an array with episode Number, reward, advantage as columns
+        self.advantageHistory is an array with episode Number and advantage as columns
         """
-        newRewardHistory = mx.nd.empty(shape = (discountedReward.shape[0], 3))
+        newAdvantageHistory = mx.nd.empty(shape = (advantages.shape[0], 2))
+        newAdvantageHistory[:,1] = advantages[:]
+        if self.advantageHistory is None: # start of the game
+            lastEpisode = 0
+            newAdvantageHistory[:,0] = 1
+            self.advantageHistory = newAdvantageHistory
+        else:
+            lastEpisode = int(self.advantageHistory[:,0].max(0).asscalar())
+            ## update episode history
+            if lastEpisode == nEpisodes:
+                ## need to drop oldest episode before update
+                self.advantageHistory = self.advantageHistory[int((self.advantageHistory[:,0] > 1).argmax(0).asscalar()):,:]
+                self.advantageHistory[:,0] -= 1
+                newAdvantageHistory[:,0] = nEpisodes
+            else:
+                newAdvantageHistory[:,0] = lastEpisode + 1
+            self.advantageHistory = mx.nd.concat(self.advantageHistory, newAdvantageHistory, dim = 0)
+        ## do the normalization
+#        pdb.set_trace()
+        advHnp = self.advantageHistory.asnumpy() ## unfortunately no std method for ndArray
+        na = (advantages - self.advantageHistory[:,1].mean()) / (advHnp[:,1].std() + 1e-7)
+        return (na)
+    
+    def normalizeReward(self, discountedReward, nEpisodes = 5):
+        """
+        takes discounted reward and normalizes it
+        with respect to the nEpisodes last episodes
+        Args:
+            discountedReward (ndArray): the discounted reward for each step
+            nEpisodes (int): number of episodes that are included in history for normalization
+        Returns:
+            ndArray normalized rewards
+            
+        self.rewardHistory is an array with episode Number, reward as columns
+        """
+        newRewardHistory = mx.nd.empty(shape = (discountedReward.shape[0], 2))
         newRewardHistory[:,1] = discountedReward[:]
-        newRewardHistory[:,2] = advantages[:]
         if self.rewardHistory is None: # start of the game
             lastEpisode = 0
             newRewardHistory[:,0] = 1
@@ -153,8 +189,7 @@ class worker(threading.Thread):
 #        pdb.set_trace()
         rewHnp = self.rewardHistory.asnumpy() ## unfortunately no std method for ndArray
         nr = (discountedReward - self.rewardHistory[:,1].mean()) / (rewHnp[:,1].std() + 1e-7)
-        na = (advantages - self.rewardHistory[:,2].mean()) / (rewHnp[:,2].std() + 1e-7)
-        return (nr, na)           
+        return (nr)           
     
     def getPerformanceIndicators(self, verbose = True):
         """
@@ -291,14 +326,15 @@ class worker(threading.Thread):
                     self.gradTime += ts3 - ts2    
                     
                     discountedReward = self.getDiscountedReward(lastValue, la = self.mainThread.cfg['lambda'])
+                    if self.normalizeRewards and (self.normRange is not None):
+                        discountedReward = self.normalizeReward(discountedReward, nEpisodes=self.normRange)
                     ts4 = time.time()
                     self.rewardTime += ts4 - ts3
                     advantages = (discountedReward - self.values)
+                    if self.normalizeAdvantages and (self.normRange is not None):
+                        advantages = self.normalizeAdvantage(advantages, nEpisodes=self.normRange)
                     ts5 = time.time()
                     self.advantageTime += ts5 - ts4
-                    ## normalize
-                    if self.normRange is not None:
-                        discountedReward, advantages = self.normalizeRewardAdvantage(discountedReward, advantages, nEpisodes=self.normRange)
                     ts6 = time.time()
                     self.discountTime += ts6-ts5
                     ## reset model (e.g. lstm initial states)
