@@ -191,10 +191,12 @@ class worker(threading.Thread):
         nr = (discountedReward - self.rewardHistory[:,1].mean()) / (rewHnp[:,1].std() + 1e-7)
         return (nr)           
     
-    def getPerformanceIndicators(self, verbose = True):
+    def getPerformanceIndicators(self, normalizedRewards, normalizedAdvantages, verbose = True):
         """
         Returns a tuple with performance indicators for the given step
         Args:
+            normalizedRewards (mx.ndArray): vector with normalized rewards.
+            normalizedAdvantages (mx.ndArray): vector with normalized advantages 
             verbose (bool): if True, performance indicators get printed to console
         Returns:
             a tuple with the performance indicators
@@ -220,11 +222,11 @@ class worker(threading.Thread):
                'lossValue': self.meanLoss['value'],
                'lossEntropy': self.meanLoss['entropy'],
                'score': score,
-               'rewards': self.rewards.sum().asscalar() / self.rewards.shape[0],
+               'normalizedRewards': normalizedRewards.sum().asscalar() / normalizedRewards.shape[0],
+               'normalizedAdvantages': normalizedAdvantages.sum().asscalar() / normalizedAdvantages.shape[0],
                'actionDst': actionDst,
                'expTime': self.expTime,
                'gradTime': self.gradTime,
-               'discountTime': self.discountTime,
                'rewardTime': self.rewardTime,
                'advantageTime': self.advantageTime,
                'logTime': self.logTime,
@@ -232,7 +234,7 @@ class worker(threading.Thread):
                'totalTime': self.totalTime
                }
         if verbose: 
-            print("Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, rewards: {5}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['rewards']))
+            print("Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, normalizedRewards: {5}, normalizedAdvantages: {6}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['normalizedRewards'], tmp['normalizedAdvantages']))
         return pd.DataFrame(tmp, index = [self.gamesPlayed])
         
     def collectDiagnosticInfo(self):
@@ -335,8 +337,6 @@ class worker(threading.Thread):
                         advantages = self.normalizeAdvantage(advantages, nEpisodes=self.normRange)
                     ts5 = time.time()
                     self.advantageTime += ts5 - ts4
-                    ts6 = time.time()
-                    self.discountTime += ts6-ts5
                     ## reset model (e.g. lstm initial states)
                     ## make sure to remember initStates to reset later
                     if self.environment.isDone() or self.environment.isPartDone():
@@ -364,7 +364,7 @@ class worker(threading.Thread):
                     ## send gradients to mainThread and do the update.
                     ## gradients on mainThread get cleared automatically
                     ts1 = time.time()
-                    self.gradTime += ts1 - ts6
+                    self.gradTime += ts1 - ts5
                     ts = ts1
                     self.mainThread.net.updateFromWorker(fromNet = self.net, dummyData = self.environment.getNetState())
                     ## get new parameters from mainThread
@@ -375,7 +375,7 @@ class worker(threading.Thread):
                     self.totalTime = ts - ts0
                     ## store performance indicators after game is finished 
                     ts3 = time.time()
-                    self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( verbose=True), sort = True)                        
+                    self.mainThread.log = self.mainThread.log.append(self.getPerformanceIndicators( normalizedRewards = discountedReward, normalizedAdvantages = advantages, verbose=True), sort = True)                        
                     if self.verbose:
                         self.mainThread.extendedLog = self.mainThread.extendedLog.append(self.collectDiagnosticInfo(), sort=True)                        
                     self.logTime += time.time()-ts3

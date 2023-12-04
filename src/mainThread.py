@@ -41,7 +41,9 @@ class mainThread:
         """
         self.log = pd.DataFrame(columns = ['workerId','step','updateSteps','gamesFinished',
                                            'loss','lossPolicy','lossValue','lossEntropy',
-                                           'score','rewards','actionDst'])
+                                           'score','normalizedRewards', 'normalizedAdvantages', 'actionDst',
+                                           'expTime', 'gradTime', 'rewardTime', 'advantageTime',
+                                           'logTime', 'updateTime', 'totalTime'])
         self.extendedLog  = pd.DataFrame(columns = ['workerId','gamesFinished','gradMean',
                                                      'gradSd','actions','initialState','paramMean'])
         self.gameCounter = 0
@@ -260,11 +262,6 @@ class mainThread:
                 name = "logTime worker {0}".format(wId)))  
         data.append(go.Scatter(
                 x = thisData['step'],
-                y = thisData['discountTime'],
-                mode = 'markers',
-                name = "discountTime worker {0}".format(wId)))  
-        data.append(go.Scatter(
-                x = thisData['step'],
                 y = thisData['rewardTime'],
                 mode = 'markers',
                 name = "rewardTime worker {0}".format(wId))) 
@@ -282,16 +279,16 @@ class mainThread:
             thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
-                        y = thisData['totalTime'],
+                        y = thisData['totalTime'] / thisData['step'],
                         mode = 'lines+markers',
                         name = "total worker {0}".format(wId)))        
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
-                        y = thisData['gradTime'],
+                        y = thisData['gradTime']/ thisData['step'],
                         mode = 'lines+markers',
                         name = "grad worker {0}".format(wId)))        
         out = pi.plotlyInterface(data)
-        out.plotToFile(os.path.join(dirname, 'timeOverEpisode.html'))
+        out.plotToFile(os.path.join(dirname, 'timePerStepOverEpisode.html'))
         
         data = []
         for wId in np.unique(self.log['workerId']):
@@ -299,7 +296,7 @@ class mainThread:
             thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
                         x = thisData['gamesFinished'],
-                        y = thisData['rewards'],
+                        y = thisData['normalizedRewards'],
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))        
         out = pi.plotlyInterface(data)
