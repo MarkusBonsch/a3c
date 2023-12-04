@@ -266,8 +266,9 @@ class worker(threading.Thread):
             self.net.reset()
             if self.verbose:
                 ## check for model params by calculating the mean of all params
+                # pdb.set_trace()
                 paramMeans = {k: v.data().asnumpy().mean() for k,v in self.net.collect_params().items()}
-                self.paramMean = np.mean(paramMeans.values())
+                self.paramMean = np.mean(list(paramMeans.values()))
             while(not self.environment.isDone()):
                 self.nSteps += 1
                 self.states.append(mx.nd.array(self.environment.getNetState()))                 
