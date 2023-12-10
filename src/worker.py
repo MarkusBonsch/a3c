@@ -55,8 +55,10 @@ class worker(threading.Thread):
 
         self.updateFrequency = self.mainThread.cfg['updateFrequency']
         self.nGames = self.mainThread.cfg['nGames']
-        self.gamesPlayed = 0
-        self.nSteps = 0
+        self.gamesPlayed = 0 # counter for full episodes that were played. Is triggered by env.isDone
+        self.updatesDone = 0 # counter for the number of updates that were done. Can be triggered by env.isDone, env.isPartDone and by updateFrequency. 
+        self.nSteps = 0 # steps for each update. Can be triggered by update frequency or env.isPartDone
+        self.gameSteps = 0 # steps for a whole game. Only triggered by env.isDone()
         self.rewardDiscount = self.mainThread.cfg['rewardDiscount']
         self.normRange = self.mainThread.cfg['normRange']
         self.normalizeRewards = self.mainThread.cfg['normalizeRewards']
@@ -215,8 +217,10 @@ class worker(threading.Thread):
         
         tmp = {'workerId': self.id, 
                'step':self.nSteps,
+               'gameStep': self.gameSteps,
                'updateSteps': self.updateSteps,
                'gamesFinished': self.gamesPlayed + 1, 
+               'updatesDone': self.updatesDone + 1,
                'loss': self.meanLoss['total'], 
                'lossPolicy': self.meanLoss['policy'],
                'lossValue': self.meanLoss['value'],
@@ -235,7 +239,7 @@ class worker(threading.Thread):
                }
         if verbose: 
             print("Worker: {0}, games: {1}, step: {2} loss: {3}, score: {4}, normalizedRewards: {5}, normalizedAdvantages: {6}".format(self.id, tmp['gamesFinished'], tmp['step'], tmp['loss'], tmp['score'], tmp['normalizedRewards'], tmp['normalizedAdvantages']))
-        return pd.DataFrame(tmp, index = [self.gamesPlayed])
+        return pd.DataFrame(tmp, index = [self.updatesDone])
         
     def collectDiagnosticInfo(self):
         """
@@ -244,8 +248,8 @@ class worker(threading.Thread):
         gradSummary = mx.nd.moments(mx.nd.concat(*[x.grad().reshape(-1) for x in self.net.collect_params().values()], 
                                                  dim = 0), 
                                     axes = 0)
-        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'gradMean': gradSummary[0].asscalar(), 'gradSd': mx.nd.sqrt(gradSummary[1]).asscalar(), 'paramMean': self.paramMean}
-        return pd.DataFrame(actions, index = [self.gamesPlayed])
+        actions = {'workerId': self.id, 'gamesFinished': self.gamesPlayed + 1, 'updatesDone': self.updatesDone, 'gradMean': gradSummary[0].asscalar(), 'gradSd': mx.nd.sqrt(gradSummary[1]).asscalar(), 'paramMean': self.paramMean}
+        return pd.DataFrame(actions, index = [self.updatesDone])
         
         
     
@@ -271,6 +275,7 @@ class worker(threading.Thread):
                 self.paramMean = np.mean(list(paramMeans.values()))
             while(not self.environment.isDone()):
                 self.nSteps += 1
+                self.gameSteps += 1
                 self.states.append(mx.nd.array(self.environment.getNetState()))                 
                 ## do the forward pass for policy and value determination. No label known yet.
                 value, policy = self.net(self.environment.getNetState())
@@ -304,7 +309,7 @@ class worker(threading.Thread):
                 ts1 = time.time()
                 self.expTime += ts1 - ts
                 ts = ts1
-                if self.nSteps%self.updateFrequency == 0 or self.environment.isDone():
+                if self.nSteps%self.updateFrequency == 0 or self.environment.isDone() or self.environment.isPartDone():
                 ## we are updating!
                     ts2 = time.time()    
                     self.updateSteps = self.nSteps%self.updateFrequency
@@ -319,12 +324,12 @@ class worker(threading.Thread):
                         print('\n')
                     self.meanLoss = {k:0 for k,v in self.meanLoss.items()}
                     if self.environment.isDone() or self.environment.isPartDone():
-                        lastValue = 0
+                        lastValue = 0 # this is debatable for partDone. It might make sense to remember e.g. lstm init states across partDone epsiodes.
                     else:
                       ## get value of new state after policy update as
                       ## future reward estimate
                       lastValue, _ = self.net(self.environment.getNetState())
-                      lastValue = int(lastValue.asscalar())
+                      lastValue = int(lastValue[0].asscalar())
                     ts3 = time.time()
                     self.gradTime += ts3 - ts2    
                     
@@ -349,6 +354,7 @@ class worker(threading.Thread):
                     for t in range(self.updateSteps):
                     ## loop over all memory to do the update.
                         ## do forward and backward pass to accumulate gradients
+                        #pdb.set_trace()
                         with mx.autograd.record(): ## per default in "is_train" mode
                             value, policy = self.net(self.states[t])
                             ## extract the prob for the chosen policy from the policy vector
@@ -384,7 +390,9 @@ class worker(threading.Thread):
                     self.net.clearGradients()
                     ## make sure to reset model to continue collecting experience
                     self.net.reset(initStates)
+                    self.updatesDone += 1
                     ## clear memory
+                    self.nSteps = 0
                     self.rewards     = None
                     self.values      = None
                     self.policyOutput = []
@@ -399,6 +407,7 @@ class worker(threading.Thread):
                 if self.mainThread.gameCounter % self.mainThread.saveInterval == 0:
                     self.mainThread.save(os.path.join(self.mainThread.outputDir, str(self.mainThread.gameCounter)), savePlots = True, overwrite = True)
             self.nSteps = 0
+            self.gameSteps = 0
             self.expTime = 0
             self.gradTime = 0
             self.updateTime = 0

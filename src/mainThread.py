@@ -39,7 +39,7 @@ class mainThread:
             envMaker(function): creates the game environment.
             configFile(string): path to the config file
         """
-        self.log = pd.DataFrame(columns = ['workerId','step','updateSteps','gamesFinished',
+        self.log = pd.DataFrame(columns = ['workerId','step','gameStep', 'updateSteps','gamesFinished',
                                            'loss','lossPolicy','lossValue','lossEntropy',
                                            'score','normalizedRewards', 'normalizedAdvantages', 'actionDst',
                                            'expTime', 'gradTime', 'rewardTime', 'advantageTime',
@@ -106,10 +106,10 @@ class mainThread:
             raise IOError("Directory {0} already exists!".format(dirname))  
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData = thisData.sort_values(['gamesFinished'])
+            thisData = self.log[(self.log['workerId'] == wId)]
+            thisData = thisData.sort_values(['updatesDone'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'].astype(int),
+                        x = thisData['updatesDone'].astype(int),
                         y = thisData['loss'].astype(float),
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))  
@@ -123,11 +123,11 @@ class mainThread:
         
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData = thisData.sort_values(['gamesFinished'])
+            thisData = self.log[(self.log['workerId'] == wId)]
+            thisData = thisData.sort_values(['updatesDone'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['lossValue'],
+                        x = thisData['updatesDone'].astype(int),
+                        y = thisData['lossValue'].astype(float),
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
         
@@ -142,11 +142,11 @@ class mainThread:
         
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData = thisData.sort_values(['gamesFinished'])
+            thisData = self.log[(self.log['workerId'] == wId)]
+            thisData = thisData.sort_values(['updatesDone'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['lossPolicy'],
+                        x = thisData['updatesDone'].astype(int),
+                        y = thisData['lossPolicy'].astype(float),
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
         
@@ -160,11 +160,11 @@ class mainThread:
         
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData = thisData.sort_values(['gamesFinished'])
+            thisData = self.log[(self.log['workerId'] == wId)]
+            thisData = thisData.sort_values(['updatesDone'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['lossEntropy'],
+                        x = thisData['updatesDone'].astype(int),
+                        y = thisData['lossEntropy'].astype(float),
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))      
 
@@ -181,20 +181,21 @@ class mainThread:
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData = thisData.sort_values(['gamesFinished'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['score'],
+                        x = thisData['gamesFinished'].astype(int),
+                        y = thisData['score'].astype(float),
                         mode = 'lines+markers',
                         visible = 'legendonly',
                         name = "worker {0}".format(wId)))        
         # get average across workers and then moving average over 5 games
         meanData = copy.deepcopy(self.log[self.log['score'] != -999])
         meanData = meanData.sort_values(['gamesFinished', 'workerId'])
+        meanData['score'] = meanData['score'].astype('float32')
         meanData = meanData.groupby(['gamesFinished'], as_index = False).agg({'score': 'mean'})
         meanData['meanCol'] = meanData['score'].rolling(5).mean()
         meanData['meanCol'] = meanData['meanCol'].fillna(0)
         data.append(go.Scatter(
-                        x = meanData['gamesFinished'],
-                        y = meanData['meanCol'],
+                        x = meanData['gamesFinished'].astype(int),
+                        y = meanData['meanCol'].astype(float),
                         mode = 'lines+markers',
                         name = "moving average"))                
         out = pi.plotlyInterface(data)
@@ -204,23 +205,22 @@ class mainThread:
         for wId in np.unique(self.log['workerId']):
             thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
             thisData = thisData.sort_values(['gamesFinished'])
-            
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['step'],
+                        x = thisData['gamesFinished'].astype(int),
+                        y = thisData['gameStep'].astype(float),
                         mode = 'lines+markers',
                         visible = 'legendonly',
                         name = "worker {0}".format(wId)))        
         # get average across workers and then moving average over 5 games
         meanData = copy.deepcopy(self.log[self.log['score'] != -999])
-        meanData['step'] = meanData['step'].astype('float32')
+        meanData['gameStep'] = meanData['gameStep'].astype('float32')
         meanData = meanData.sort_values(['gamesFinished', 'workerId'])
-        meanData = meanData.groupby(['gamesFinished'], as_index = False).agg({'step': 'mean'})
-        meanData['meanCol'] = meanData['step'].rolling(5).mean()
+        meanData = meanData.groupby(['gamesFinished'], as_index = False).agg({'gameStep': 'mean'})
+        meanData['meanCol'] = meanData['gameStep'].rolling(5).mean()
         meanData['meanCol'] = meanData['meanCol'].fillna(0)
         data.append(go.Scatter(
-                        x = meanData['gamesFinished'],
-                        y = meanData['meanCol'],
+                        x = meanData['gamesFinished'].astype(int),
+                        y = meanData['meanCol'].astype(float),
                         mode = 'lines+markers',
                         name = "moving average"))        
         out = pi.plotlyInterface(data)
@@ -228,46 +228,46 @@ class mainThread:
         
         data = []
         wId = np.unique(self.log['workerId'])[0]
-        thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-        thisData = thisData.sort_values(['step'])
+        thisData = self.log[(self.log['workerId'] == wId)]
+        thisData = thisData.sort_values(['updateSteps'])
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['expTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['expTime'].astype(float),
                 mode = 'markers',
                 name = "expTime worker {0}".format(wId)))
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['gradTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['gradTime'].astype(float),
                 mode = 'markers',
                 name = "gradTime worker {0}".format(wId)))
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['updateTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['updateTime'].astype(float),
                 mode = 'markers',
                 name = "updateTime worker {0}".format(wId)))            
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['totalTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['totalTime'].astype(float),
                 mode = 'markers',
                 name = "totalTime worker {0}".format(wId)))                        
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['totalTime'] - thisData['expTime'] - thisData['updateTime'] - thisData['gradTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = (thisData['totalTime'] - thisData['expTime'] - thisData['updateTime'] - thisData['gradTime']).astype(float),
                 mode = 'markers',
                 name = "residualTime worker {0}".format(wId)))          
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['logTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['logTime'].astype(float),
                 mode = 'markers',
                 name = "logTime worker {0}".format(wId)))  
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['rewardTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['rewardTime'].astype(float),
                 mode = 'markers',
                 name = "rewardTime worker {0}".format(wId))) 
         data.append(go.Scatter(
-                x = thisData['step'],
-                y = thisData['advantageTime'],
+                x = thisData['updateSteps'].astype(int),
+                y = thisData['advantageTime'].astype(float),
                 mode = 'markers',
                 name = "advantageTime worker {0}".format(wId))) 
         out = pi.plotlyInterface(data)
@@ -275,27 +275,27 @@ class mainThread:
         
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData = thisData.sort_values(['gamesFinished'])
+            thisData = self.log[(self.log['workerId'] == wId)]
+            thisData = thisData.sort_values(['updatesDone'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['totalTime'] / thisData['step'],
+                        x = thisData['updatesDone'],
+                        y = thisData['totalTime'] / thisData['updateSteps'],
                         mode = 'lines+markers',
                         name = "total worker {0}".format(wId)))        
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
-                        y = thisData['gradTime']/ thisData['step'],
+                        x = thisData['updatesDone'],
+                        y = thisData['gradTime']/ thisData['updateSteps'],
                         mode = 'lines+markers',
                         name = "grad worker {0}".format(wId)))        
         out = pi.plotlyInterface(data)
-        out.plotToFile(os.path.join(dirname, 'timePerStepOverEpisode.html'))
+        out.plotToFile(os.path.join(dirname, 'timePerStepOverupdatesDone.html'))
         
         data = []
         for wId in np.unique(self.log['workerId']):
-            thisData = self.log[(self.log['workerId'] == wId) & (self.log['score'] != -999)]
-            thisData = thisData.sort_values(['gamesFinished'])
+            thisData = self.log[(self.log['workerId'] == wId)]
+            thisData = thisData.sort_values(['updatesDone'])
             data.append(go.Scatter(
-                        x = thisData['gamesFinished'],
+                        x = thisData['updatesDone'],
                         y = thisData['normalizedRewards'],
                         mode = 'lines+markers',
                         name = "worker {0}".format(wId)))        
@@ -324,7 +324,7 @@ class mainThread:
         ## save config
         with open(os.path.join(outFolder, 'config.cfg'), 'w') as outfile:
             yaml.dump(self.cfg, outfile, default_flow_style=False)
-        if savePlots:
+        if savePlots and not all(self.log['score']==-999):
             self.getPerformancePlots(os.path.join(outFolder, "plots"), overwrite = True)
             
     
