@@ -51,7 +51,6 @@ class mainThread:
         self.outputDir = self.cfg['outputDir']
         self.saveInterval =self.cfg['saveInterval']
         
-        
         self.envMaker = envMaker
         self.environment = self.envMaker()
         self.environment.reset() ## initialize to start

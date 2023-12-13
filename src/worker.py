@@ -63,6 +63,7 @@ class worker(threading.Thread):
         self.normRange = self.mainThread.cfg['normRange']
         self.normalizeRewards = self.mainThread.cfg['normalizeRewards']
         self.normalizeAdvantages = self.mainThread.cfg['normalizeAdvantages']
+        self.updateOnPartDone = self.mainThread.cfg['updateOnPartDone']
         self.verbose = mainThread.verbose
         self.rewards     = None
         self.values      = None
@@ -309,7 +310,11 @@ class worker(threading.Thread):
                 ts1 = time.time()
                 self.expTime += ts1 - ts
                 ts = ts1
-                if self.nSteps%self.updateFrequency == 0 or self.environment.isDone() or self.environment.isPartDone():
+                # check, whether an update needs to be performed.
+                updateTrigger = self.nSteps%self.updateFrequency == 0 or self.environment.isDone()
+                if self.updateOnPartDone:
+                    updateTrigger = updateTrigger or self.environment.isPartDone()
+                if updateTrigger:
                 ## we are updating!
                     ts2 = time.time()    
                     self.updateSteps = self.nSteps%self.updateFrequency
