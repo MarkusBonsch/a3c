@@ -71,7 +71,7 @@ class a3cLoss(gluon.loss.Loss):
     Loss function for a3c
     """
     
-    def __init__(self, valueLossScale = 0.5, entropyLossScale = 0.01, weight = None, batch_axis = None, **kwargs):
+    def __init__(self, valueLossScale = 0.5, entropyLossScale = 0.01, weight = None, batch_axis = None, policyClipValue = 1e-7, **kwargs):
         """
         Loss function for a3c with ppo
         Inputs:
@@ -79,22 +79,26 @@ class a3cLoss(gluon.loss.Loss):
             entropyLossScale (float): the scaling factor for the policy entropy loss
             weight:     see mxnet.gluon.Loss
             batch_axis: see mxnet.gluon.Loss
+            policyClipValue (float): policy will be clipped to [clipValue; 1-clipValue] in order to avoid problems with log and ratios
         """
         super(a3cLoss, self).__init__(weight, batch_axis, **kwargs)
         self.vSc = valueLossScale
         self.eSc = entropyLossScale
+        self.policyClipValue = policyClipValue
         self.valueLoss  = 0
         self.policyLoss = 0
         self.entroplyLoss = 0
         
     def hybrid_forward(self, F, value, policy, valueLabel, advantageLabel, policyOldLabel):
+        policy = F.clip(policy, policyClipValue, 1-policyClipValue)
+        policyOldLabel = F.clip(policyOldLabel, policyClipValue, 1-policyClipValue)
         self. valueLoss = self.vSc * F.nansum(F.square((mx.nd.stop_gradient(valueLabel) - value)),
                                    name = "valueLoss")
-        ppoRatio = F.exp(F.log(policy + 1e-7) - F.log(mx.nd.stop_gradient(policyOldLabel + 1e-7)))
+        ppoRatio = F.exp(F.log(policy) - F.log(mx.nd.stop_gradient(policyOldLabel)))
         
         self.policyLoss = -F.nansum(F.minimum(ppoRatio * mx.nd.stop_gradient(advantageLabel), F.clip(ppoRatio, 0.8, 1.2) * mx.nd.stop_gradient(advantageLabel)),
                                     name = 'policyLoss')
-        self.entropyLoss = self.eSc * F.nansum(F.log(policy + 1e-7) * policy,
+        self.entropyLoss = self.eSc * F.nansum(F.log(policy) * policy,
                                                name = 'entropyLoss')
         return self.valueLoss + self.policyLoss + self.entropyLoss
     
