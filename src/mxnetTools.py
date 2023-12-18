@@ -259,7 +259,7 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
         """
         out = {}
         for block in self._children.values():
-            if isinstance(block, a3cLSTM):
+            if isinstance(block, a3cLSTM) or isinstance(block, a3cLSTMLayer):
                 out.update({block.name:  block.initStates})
         return out
         
@@ -326,3 +326,86 @@ class a3cLSTM(a3cBlock):
             self.initStates = self.defaultInitStates
         else:
             self.initStates = initStates
+
+
+class a3cLSTMLayer(a3cBlock):
+    """
+    Wrapper for gluon.rnn.LSTM
+    The basic idea is to store the input states to construct a sequence without having to recompute all conv net inputs
+    Additionally, the following actions are performed:    
+        1. Store and update initial states
+        2. Return only output for last sequence
+        3. Implement reset() method to set initial states to 0
+    """
+    def __init__(self, nHidden, seqLength, **kwargs):
+        """
+        Args:
+            nHidden (int): the number of neurons in the lstm layer
+            seqLength (int): the desired sequence length
+        """
+        self.seqLength = seqLength
+       # construct the lstm layer
+        lstm = mx.gluon.rnn.LSTM(hidden_size = nHidden, num_layers = 1, layout="TNC")
+       
+        super(a3cLSTMLayer,self).__init__(lstm, **kwargs)
+
+        # initialize memory for init states
+        # in this case, init states is a list of two components:
+        # 1. the initStateHistory
+        # 2. the inputHistory.
+        self.defaultInitStates = self.block.begin_state(1,mx.symbol.zeros)
+        initStateHistory = [self.defaultInitStates] * self.seqLength
+        inputHistory = None
+        self.initStates = [initStateHistory, inputHistory]
+        
+    def hybrid_forward(self, F, x, initStates = None):
+#        pdb.set_trace()
+        # here, we have to recycle old inputs in order to fill the inputs for the lstm
+        # the layout is (sequenceLength, inputDim1, inputDim2, . . .)
+        if self.initStates[1] is None: # this is the inputHistory
+            # we are starting and no old inputs are present so far. We fill the whole memory with the current input.
+            # first axis of the input history is sequence slot
+            inputHistory = mx.nd.empty((self.seqLength-1,) + x.shape)
+            inputHistory[:,]= mx.nd.stop_gradient(mx.nd.expand_dims(x.copy(), axis = 0))
+        else:
+            inputHistory = self.initStates[1]
+
+        initStateHistory = self.initStates[0] 
+        # add current input x the the input history to obtain the full set of inputs
+        input = F.concat(inputHistory, F.expand_dims(x, axis = 0), dim = 0)
+        # extract the relevant initStates from the initStateHistory (the oldest element)
+        thisInitState = initStateHistory[0]
+        output = self.block(input, thisInitState)
+        if len(output) == 2:
+            states = output[1]
+            output = output[0]
+        else: ## no states are returned
+            states = None
+            output = output[0]
+        # select last element of output along sequence axis. Sequence axis is always 0 due to 'TNC' argument to constructor
+        output = F.reverse(output,axis = 0)
+        output = F.slice_axis(output, axis = 0, begin = 0, end = 1)
+        ## update the initStateHistory: discard the oldest element and add new initStates at the end
+        if states is not None:
+            initStateHistory = initStateHistory[1:] + [states]
+        else
+            initStateHistory = initStateHistory[1:] + [self.defaultInitStates]
+        ## update the input history: discard the oldest input and add current input x at the end. Be sure to copy and stop gradients.
+        inputHistory = mx.nd.concat(inputHistory[1:,], mx.nd.stop_gradient(mx.nd.expand_dims(x.copy(), axis = 0)), dim = 0)
+        self.initStates[0] = initStateHistory
+        self.initStates[1] = inputHistory
+        return(output)
+    
+    def reset(self, initStates = None):
+        """
+        resets the initStates
+        Args:
+            initStates(list): list with two elements: initStateHistory and inputHistory as 
+            returned by a3cLSTMLayer.getInitStates. 
+            If None, initStates will be reset to defaultInitStates. If not None, initStates will be reset to this value.
+        """
+        if initStates is None:
+            initStateHistory = [self.defaultInitStates] * self.seqLength
+            inputHistory = None
+            initStates = [initStateHistory, inputHistory]
+        self.initStates = initStates
