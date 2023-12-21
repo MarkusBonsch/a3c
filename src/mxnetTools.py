@@ -388,7 +388,7 @@ class a3cLSTMLayer(a3cBlock):
         ## update the initStateHistory: discard the oldest element and add new initStates at the end
         if states is not None:
             initStateHistory = initStateHistory[1:] + [states]
-        else
+        else:
             initStateHistory = initStateHistory[1:] + [self.defaultInitStates]
         ## update the input history: discard the oldest input and add current input x at the end. Be sure to copy and stop gradients.
         inputHistory = mx.nd.concat(inputHistory[1:,], mx.nd.stop_gradient(mx.nd.expand_dims(x.copy(), axis = 0)), dim = 0)
