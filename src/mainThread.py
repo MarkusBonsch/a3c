@@ -66,6 +66,7 @@ class mainThread:
         if self.cfg['trainerFile'] is not None:
             self.net.trainer.load_states(self.cfg['trainerFile'])
         self.verbose = self.cfg['verbose']
+        self.useGAE = self.cfg['useGAE']
         
     def readConfig(self, configFile):
         """

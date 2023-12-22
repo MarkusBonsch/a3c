@@ -71,7 +71,8 @@ class a3cLoss(gluon.loss.Loss):
     Loss function for a3c
     """
     
-    def __init__(self, valueLossScale = 0.5, entropyLossScale = 0.01, weight = None, batch_axis = None, policyClipValue = 1e-7, **kwargs):
+    def __init__(self, valueLossScale = 0.5, entropyLossScale = 0.01, weight = None, batch_axis = None, policyClipValue = 1e-7,
+                 usePPO = True,  **kwargs):
         """
         Loss function for a3c with ppo
         Inputs:
@@ -80,24 +81,32 @@ class a3cLoss(gluon.loss.Loss):
             weight:     see mxnet.gluon.Loss
             batch_axis: see mxnet.gluon.Loss
             policyClipValue (float): policy will be clipped to [clipValue; 1-clipValue] in order to avoid problems with log and ratios
+            usePPO (bool): if True, PPO loss is used, if False, standard policy gradient is used.
         """
         super(a3cLoss, self).__init__(weight, batch_axis, **kwargs)
         self.vSc = valueLossScale
         self.eSc = entropyLossScale
         self.policyClipValue = policyClipValue
+        self.usePPO = usePPO
         self.valueLoss  = 0
         self.policyLoss = 0
-        self.entroplyLoss = 0
+        self.entropyLoss = 0
         
-    def hybrid_forward(self, F, value, policy, valueLabel, advantageLabel, policyOldLabel):
+    def hybrid_forward(self, F, value, policy, valueLabel, advantageLabel, policyOldLabel = None):
+        if self.usePPO and policyOldLabel is None:
+            raise ValueError("if usePPO is True, the parameter policyOldLabel needs to be provided.")
         policy = F.clip(policy, self.policyClipValue, 1-self.policyClipValue)
-        policyOldLabel = F.clip(policyOldLabel, self.policyClipValue, 1-self.policyClipValue)
-        self. valueLoss = self.vSc * F.nansum(F.square((mx.nd.stop_gradient(valueLabel) - value)),
-                                   name = "valueLoss")
-        ppoRatio = F.exp(F.log(policy) - F.log(mx.nd.stop_gradient(policyOldLabel)))
+        if self.usePPO:
+            policyOldLabel = F.clip(policyOldLabel, self.policyClipValue, 1-self.policyClipValue)
+            ppoRatio = F.exp(F.log(policy) - F.log(F.stop_gradient(policyOldLabel)))
         
-        self.policyLoss = -F.nansum(F.minimum(ppoRatio * mx.nd.stop_gradient(advantageLabel), F.clip(ppoRatio, 0.8, 1.2) * mx.nd.stop_gradient(advantageLabel)),
-                                    name = 'policyLoss')
+            self.policyLoss = -F.nansum(F.minimum(ppoRatio * F.stop_gradient(advantageLabel), F.clip(ppoRatio, 0.8, 1.2) * F.stop_gradient(advantageLabel)),
+                                        name = 'policyLoss')
+        else: # standard policy Gradient is required.
+             self.policyLoss = -F.nansum(F.log(policy) * advantageLabel, name = 'policyLoss')
+
+        self. valueLoss = self.vSc * F.nansum(F.square((F.stop_gradient(valueLabel) - value)),
+                                       name = "valueLoss")                                         
         self.entropyLoss = self.eSc * F.nansum(F.log(policy) * policy,
                                                name = 'entropyLoss')
         return self.valueLoss + self.policyLoss + self.entropyLoss
@@ -132,13 +141,13 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
     """
     Some nice extensions for exchangeing gradients and parameters
     """
-    def __init__(self, useInitStates = False, **kwargs):
+    def __init__(self, useInitStates = False, usePPO = True, **kwargs):
         super(a3cHybridSequential, self).__init__(**kwargs)
         self.lock = threading.Lock()
         self.trainer = None
         self.lossFct = []## list is a dirty trick to hide the loss from the 
         self.lossFct.append([]) ## forward computation of the sequential model
-        self.lossFct[0].append(a3cLoss())
+        self.lossFct[0].append(a3cLoss(usePPO = usePPO))
         self.useInitStates = useInitStates
     
     def clearGradients(self):
@@ -353,7 +362,7 @@ class a3cLSTMLayer(a3cBlock):
         # in this case, init states is a list of two components:
         # 1. the initStateHistory
         # 2. the inputHistory.
-        self.defaultInitStates = self.block.begin_state(1,mx.symbol.zeros)
+        self.defaultInitStates = self.block.begin_state(1,F.zeros)
         initStateHistory = [self.defaultInitStates] * self.seqLength
         inputHistory = None
         self.initStates = [initStateHistory, inputHistory]
@@ -365,8 +374,8 @@ class a3cLSTMLayer(a3cBlock):
         if self.initStates[1] is None: # this is the inputHistory
             # we are starting and no old inputs are present so far. We fill the whole memory with the current input.
             # first axis of the input history is sequence slot
-            inputHistory = mx.nd.empty((self.seqLength-1,) + x.shape)
-            inputHistory[:,]= mx.nd.stop_gradient(mx.nd.expand_dims(x.copy(), axis = 0))
+            inputHistory = F.empty((self.seqLength-1,) + x.shape)
+            inputHistory[:,]= F.stop_gradient(F.expand_dims(x.copy(), axis = 0))
         else:
             inputHistory = self.initStates[1]
 
@@ -391,7 +400,7 @@ class a3cLSTMLayer(a3cBlock):
         else:
             initStateHistory = initStateHistory[1:] + [self.defaultInitStates]
         ## update the input history: discard the oldest input and add current input x at the end. Be sure to copy and stop gradients.
-        inputHistory = mx.nd.concat(inputHistory[1:,], mx.nd.stop_gradient(mx.nd.expand_dims(x.copy(), axis = 0)), dim = 0)
+        inputHistory = F.concat(inputHistory[1:,], F.stop_gradient(F.expand_dims(x.copy(), axis = 0)), dim = 0)
         self.initStates[0] = initStateHistory
         self.initStates[1] = inputHistory
         return(output)

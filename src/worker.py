@@ -94,7 +94,7 @@ class worker(threading.Thread):
         out = out[::-1]
         return(out)
 
-    def getDiscountedReward(self, lastValue, la = 0.96):
+    def getDiscountedRewardGAE(self, lastValue, la = 0.96):
         """
         calculates the advantage according to generalized advantage estimation
         Args:
@@ -123,6 +123,13 @@ class worker(threading.Thread):
         ## add values to obtain rewards instead of advantages
         out = out + self.values
         return(out)
+    
+    def getDiscountedReward(self, lastValue, la = 0.96, useGAE = True):
+        if useGAE:
+            reward = self.getDiscountedRewardGAE(lastValue = lastValue, la = la)
+        else: 
+            reward = self.getDiscountedRewardNormal(lastValue = lastValue)
+        return(reward)
     
     def normalizeAdvantage(self, advantages, nEpisodes = 5):
         """
@@ -338,7 +345,7 @@ class worker(threading.Thread):
                     ts3 = time.time()
                     self.gradTime += ts3 - ts2    
                     
-                    discountedReward = self.getDiscountedReward(lastValue, la = self.mainThread.cfg['lambda'])
+                    discountedReward = self.getDiscountedReward(lastValue, la = self.mainThread.cfg['lambda'], useGAE = self.mainThread.useGAE)
                     if self.normalizeRewards and (self.normRange is not None):
                         discountedReward = self.normalizeReward(discountedReward, nEpisodes=self.normRange)
                     ts4 = time.time()
@@ -367,7 +374,7 @@ class worker(threading.Thread):
                             loss = self.net.lossFct[0][0](value, policy, discountedReward[t], advantages[t], self.policyOutput[t])
                         loss.backward() ## grd_req is add, so gradients are accumulated       
                         ## reset model if necessary
-                        if self.resetTrigger[t]: self.net.reset()                        
+                        if self.resetTrigger[t]: self.net.reset()   
                         self.meanLoss['total'] += self.net.lossFct[0][0].getLoss()
                         self.meanLoss['policy'] += self.net.lossFct[0][0].getPolicyLoss()
                         self.meanLoss['value'] += self.net.lossFct[0][0].getValueLoss()
