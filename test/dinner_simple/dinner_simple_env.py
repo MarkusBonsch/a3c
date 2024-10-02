@@ -1,5 +1,3 @@
-#!/usr/bin/env python2
-# -*- coding: utf-8 -*-
 """
 Created on Tue Mar 27 17:51:36 2018
 
@@ -34,7 +32,7 @@ class dinner_env(env.environment):
                  nTeams = 9
                  ,padSize = 9
                  ,shuffleTeams = False
-                 ,restrictValidActions = True
+                 ,restrictValidActions = False
                  ,centerAddress={'lat':53.551086, 'lng':9.993682}
                  ,radiusInMeter=5000
                  ,dinnerTime = datetime(2020, 7, 1, 20)
@@ -177,10 +175,14 @@ class dinner_env(env.environment):
                 self.env.done = True
                 return None
         ## if we reach here, we had a valid action!
-        self.lastReward = 4
+        self.lastReward = 1
+
 #        # add number of new teams met to reward
 #        self.lastReward += self.env.getNewPersonsMet()[action]
         self.env.update(action)
+        ## additional reward if the game is over
+        if self.env.isDone():
+            self.lastReward += 4
         self.score += self.lastReward
         if self.env.isDone():
             ## check if it is fully done or rescue Tables need to be assigned.

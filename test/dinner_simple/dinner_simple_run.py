@@ -9,7 +9,8 @@ import sys
 sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/a3c/src')
 sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple')
 sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/plotting')
-#import os
+import os
+import shutil
 #os.chdir("Documents/Nerding/python/")
 
 from dinner_simple_env import dinner_env
@@ -43,15 +44,24 @@ def netMaker():
     net.add(mx.gluon.nn.ELU())
     net.add(mxT.a3cOutput(n_policy = nTeams, prefix = ""))
     net.initialize(init = mx.initializer.Xavier(magnitude = 0.1), ctx= mx.cpu())
-    # set inital parameters from per-trained model
-    params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/test_fullState_valid_meetScore_9Teams_9pad_normRange20_conv16_fc64/35000/net-symbol.json",
-                                      param_file  = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/test_fullState_valid_meetScore_9Teams_9pad_normRange20_conv16_fc64/35000//net-0001.params",
-                                      input_names = ['data'])
-    net.copyParams(fromNet=params)
+    # # set inital parameters from per-trained model
+    # params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/test_fullState_valid_meetScore_9Teams_9pad_normRange20_conv16_fc64/35000/net-symbol.json",
+    #                                   param_file  = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/test_fullState_valid_meetScore_9Teams_9pad_normRange20_conv16_fc64/35000//net-0001.params",
+    #                                   input_names = ['data'])
+    # net.copyParams(fromNet=params)
     return(net)
-    
-def run():
-    mainThread = mT(netMaker   = netMaker , 
+
+mainThread = mT(netMaker   = netMaker , 
                 envMaker   = dinnerMaker, 
                 configFile = 'C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/dinner_simple.cfg')
+
+## copy run script and environment script to output dir
+if mainThread.outputDir is not None:
+    if not os.path.exists(mainThread.outputDir):
+                os.makedirs(mainThread.outputDir)
+    shutil.copyfile('C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/dinner_simple_run.py', os.path.join(mainThread.outputDir, 'dinner_simple_run.py'))
+    shutil.copyfile('C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/dinner_simple_env.py', os.path.join(mainThread.outputDir, 'dinner_simple_env.py'))
+  
+# mainThread.run()
+def run():
     mainThread.run()
