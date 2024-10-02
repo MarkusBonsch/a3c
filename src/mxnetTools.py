@@ -362,7 +362,7 @@ class a3cLSTMLayer(a3cBlock):
         # in this case, init states is a list of two components:
         # 1. the initStateHistory
         # 2. the inputHistory.
-        self.defaultInitStates = self.block.begin_state(1,F.zeros)
+        self.defaultInitStates = self.block.begin_state(1,mx.symbol.zeros)
         initStateHistory = [self.defaultInitStates] * self.seqLength
         inputHistory = None
         self.initStates = [initStateHistory, inputHistory]
@@ -374,8 +374,14 @@ class a3cLSTMLayer(a3cBlock):
         if self.initStates[1] is None: # this is the inputHistory
             # we are starting and no old inputs are present so far. We fill the whole memory with the current input.
             # first axis of the input history is sequence slot
-            inputHistory = F.empty((self.seqLength-1,) + x.shape)
-            inputHistory[:,]= F.stop_gradient(F.expand_dims(x.copy(), axis = 0))
+            if isinstance(x, mx.symbol.symbol.Symbol):
+                xCopy = x.__copy__()
+            else: #it is an ndarray
+                xCopy = x.copy()
+
+            inputHistory = F.stop_gradient(F.expand_dims(xCopy, axis = 0))
+            for i in range(self.seqLength-1):
+                inputHistory = F.concat(inputHistory, F.stop_gradient(F.expand_dims(xCopy, axis = 0)), dim = 0)
         else:
             inputHistory = self.initStates[1]
 
