@@ -7,6 +7,7 @@ Everything around the state: reward update, etc.
 """
 import sys
 sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/dinnerTest/src')
+sys.path.insert(0,'C:/users/markus_2/Documents/Nerding/python/a3c/src')
 
 import environment as env
 import pdb
@@ -15,8 +16,6 @@ import mxnet as mx
 from state import state
 from assignDinnerCourses import assignDinnerCourses
 from randomDinnerGenerator import randomDinnerGenerator
-from datetime import datetime
-
 from datetime import datetime
 
 class dinner_env(env.environment):
@@ -29,8 +28,13 @@ class dinner_env(env.environment):
         
     """
     def __init__(self, seqLength, useSeqLength = False, 
-                 nTeams = 9
-                 ,padSize = 9
+                 # each dinner is generated with a random number of teams nTeams
+                 # between nMinTeams and nMaxTeams. Only nTeams divisible by 3 are allowed
+                 # to make sure everything resolves easily
+                 # padSize automatically corresponds to nMaxTeams
+                 nMinTeams = 24 ## 
+                 ,nMaxTeams = 24
+                 ,padSize = 24 # only relevant if nMinTeams = nmaxTeams, i.e. if a certain teamSize is required
                  ,shuffleTeams = False
                  ,restrictValidActions = False
                  ,centerAddress={'lat':53.551086, 'lng':9.993682}
@@ -55,12 +59,19 @@ class dinner_env(env.environment):
         """
         self.travelMode = travelMode
         self.dinnerTime = dinnerTime
-        self.padSize = padSize
+        if nMinTeams == nMaxTeams:
+            self.padSize = padSize
+        else:
+            self.padSize = nMaxTeams
         self.shuffleTeams = shuffleTeams
         self.restrictValidActions = restrictValidActions
-        self.rawGen = randomDinnerGenerator(numberOfTeams=nTeams
-                                    ,centerAddress=centerAddress
-                                    ,radiusInMeter=radiusInMeter
+        # now we have to generate randomDinnerGenerators for all possible teamSizes
+        possibleTeamSizes = np.arange(nMinTeams, nMaxTeams+3, 3)
+        self.rawGen = []
+        for teamSize in possibleTeamSizes:
+            self.rawGen.append(randomDinnerGenerator(numberOfTeams=teamSize                                    
+                                                     ,centerAddress=centerAddress
+                                                    ,radiusInMeter=radiusInMeter
                                     ,wishStarterProbability=wishStarterProbability
                                     ,wishMainCourseProbability=wishMainCourseProbability
                                     ,wishDessertProbability=wishDessertProbability
@@ -74,7 +85,7 @@ class dinner_env(env.environment):
                                     ,catsIntolerantProbability=catsIntolerantProbability
                                     ,dogFreeProbability=dogFreeProbability
                                     ,catFreeProbability=catFreeProbability,
-                                    checkValidity = False)
+                                    checkValidity = False))
         self.validActions = np.zeros(shape = (self.padSize))
         self.state = 0
         self.useSeqLength = useSeqLength
@@ -92,7 +103,14 @@ class dinner_env(env.environment):
         converts numpy array to apropriate mxnet nd array
         """
         state = mx.nd.array(self.state).reshape(-1) ## 1d array
-        state = mx.nd.expand_dims(state, 0) ## dummz axes for batch and channel
+        ## add active course information in the end
+        activeCourseInfo = mx.nd.zeros(3)
+        if self.env.isDone(): # if it is done, set the activeCourse to 3 for desert.
+            activeCourseInfo[2] = 1
+        else:
+            activeCourseInfo[self.env.activeCourse - 1] = 1
+        state = mx.nd.concat(state, activeCourseInfo, dim = 0)
+        state = mx.nd.expand_dims(state, 0) ## dummy axes for batch and channel
         state = mx.nd.expand_dims(state, 0)
         return(state)
         
@@ -132,10 +150,14 @@ class dinner_env(env.environment):
  
         """
         if initState is None:
-            rawData = self.rawGen.generateDinner()
-            assigner = assignDinnerCourses(rawData[0], rawData[1])
+            # random sample a teamSize for the current dinner
+            # i.e. pick a randomDinnerGenerator from the list
+            thisSize = np.random.randint(len(self.rawGen))
+            rawData = self.rawGen[thisSize].generateDinner()
+            assigner = assignDinnerCourses(dinnerTable = rawData[0])
             dinnerAssigned = assigner.assignDinnerCourses(random = False)
-            self.env = state(data = dinnerAssigned, 
+            self.env = state(data = dinnerAssigned,
+                             finalPartyLocation = rawData[1],
                              dinnerTime = self.dinnerTime, 
                              travelMode = self.travelMode, 
                              padSize = self.padSize,
