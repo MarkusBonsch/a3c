@@ -230,7 +230,20 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
             optimizer (string): type of optimizer to be used
             optimizerArgs (dict): additional options for the optimizer
         """
-        self.trainer = gluon.Trainer(params=self.collect_params(),
+
+        ## important step: get all parameters that should be updated. a3cBlocks with fixParams = True are excluded from update.
+        allParams = self.collect_params() # lookup table with all parameters
+        trainerParams = gluon.ParameterDict(shared = allParams) # container for all the parameters that need to be updated
+        for child in self._children.values(): # loop over all individual layers. Not sure, if this wirks properly with nested a3cBlocks
+            fixParams = False # normally, parameters should be updated by the trainer
+            if isinstance(child, a3cBlock) and child.fixParams: # in this case, parameters should be fixed.
+                fixParams = True
+            if not fixParams: # parameters should be added to the trainer
+                for paramName in child.collect_params().keys():
+                    # add this individual param to trainerParams
+                    trainerParams.get(paramName) # "get" tries to retrieve the parameter from "shared" if it is not yet available in trainerPArams
+        
+        self.trainer = gluon.Trainer(params=trainerParams,
                                      optimizer= optimizer,
                                      optimizer_params=optimizerArgs)
         
