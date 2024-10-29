@@ -13,15 +13,19 @@ import os
 class a3cBlock(gluon.HybridBlock):
     """
     extensions for a3c.
-    Currently just a wrapper that adds the reset() function
     """
-    def __init__(self, block = None, **kwargs):
+    def __init__(self, block = None, fixParams = False, **kwargs):
+        ## Arguments:
+        ## block: the network layer. Usually a gluon.nn. . . block
+        ## fixParams: bool to remember whether the params of this block should be updated by the trainer
         super(a3cBlock, self).__init__(**kwargs)
         if block is not None:
             self.block = block
-    
+        self.fixParams = fixParams
+        
     def hybrid_forward(self, F, x):
-        self.block(x) ## pass forward call to inner block
+        out = self.block(x) ## pass forward call to inner block
+        return(out)
     
     def reset(self):
         """
