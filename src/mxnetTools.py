@@ -233,17 +233,17 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
 
         ## important step: get all parameters that should be updated. a3cBlocks with fixParams = True are excluded from update.
         allParams = self.collect_params() # lookup table with all parameters
-        trainerParams = gluon.ParameterDict(shared = allParams) # container for all the parameters that need to be updated
-        for child in self._children.values(): # loop over all individual layers. Not sure, if this wirks properly with nested a3cBlocks
+        self.trainerParams = gluon.ParameterDict(shared = allParams) # container for all the parameters that need to be updated
+        for child in self._children.values(): # loop over all individual layers. Does not work with nested a3cBlocks
             fixParams = False # normally, parameters should be updated by the trainer
             if isinstance(child, a3cBlock) and child.fixParams: # in this case, parameters should be fixed.
                 fixParams = True
             if not fixParams: # parameters should be added to the trainer
                 for paramName in child.collect_params().keys():
                     # add this individual param to trainerParams
-                    trainerParams.get(paramName) # "get" tries to retrieve the parameter from "shared" if it is not yet available in trainerPArams
+                    self.trainerParams.get(paramName) # "get" tries to retrieve the parameter from "shared" if it is not yet available in trainerPArams
         
-        self.trainer = gluon.Trainer(params=trainerParams,
+        self.trainer = gluon.Trainer(params=self.trainerParams,
                                      optimizer= optimizer,
                                      optimizer_params=optimizerArgs)
         
@@ -363,7 +363,7 @@ class a3cLSTMLayer(a3cBlock):
         2. Return only output for last sequence
         3. Implement reset() method to set initial states to 0
     """
-    def __init__(self, nHidden, seqLength, **kwargs):
+    def __init__(self, nHidden, seqLength, prefix = 'lstm', **kwargs):
         """
         Args:
             nHidden (int): the number of neurons in the lstm layer
@@ -371,7 +371,7 @@ class a3cLSTMLayer(a3cBlock):
         """
         self.seqLength = seqLength
        # construct the lstm layer
-        lstm = mx.gluon.rnn.LSTM(hidden_size = nHidden, num_layers = 1, layout="TNC")
+        lstm = mx.gluon.rnn.LSTM(hidden_size = nHidden, num_layers = 1, layout="TNC", prefix = prefix)
        
         super(a3cLSTMLayer,self).__init__(lstm, **kwargs)
 
@@ -385,7 +385,7 @@ class a3cLSTMLayer(a3cBlock):
         self.initStates = [initStateHistory, inputHistory]
         
     def hybrid_forward(self, F, x, initStates = None):
-#        pdb.set_trace()
+        # pdb.set_trace()
         # here, we have to recycle old inputs in order to fill the inputs for the lstm
         # the layout is (sequenceLength, inputDim1, inputDim2, . . .)
         if self.initStates[1] is None: # this is the inputHistory
@@ -423,7 +423,7 @@ class a3cLSTMLayer(a3cBlock):
         else:
             initStateHistory = initStateHistory[1:] + [self.defaultInitStates]
         ## update the input history: discard the oldest input and add current input x at the end. Be sure to copy and stop gradients.
-        inputHistory = F.concat(inputHistory[1:,], F.stop_gradient(F.expand_dims(x.copy(), axis = 0)), dim = 0)
+        inputHistory = F.concat(F.slice_axis(inputHistory, axis = 0, begin = 1, end = None), F.stop_gradient(F.expand_dims(xCopy, axis = 0)), dim = 0)
         self.initStates[0] = initStateHistory
         self.initStates[1] = inputHistory
         return(output)
@@ -441,3 +441,44 @@ class a3cLSTMLayer(a3cBlock):
             inputHistory = None
             initStates = [initStateHistory, inputHistory]
         self.initStates = initStates
+
+class fixedInputSelector(a3cBlock):
+    """
+    Allows selection of specific variables from the input for each team. 
+    Weights are excluded from training
+    """
+    def __init__(self, inSize, nTeams, nTeamVars, selectedTeamVars, selectedAddVars = [] , **kwargs): 
+        
+        """
+        Args: 
+        inSize (int): length of the input vector
+        nTeams (int): the number of teams in the input.
+        nTeamVars (int): the number of variables for each team
+        selectedTeamVars (list of ints): indices of the variables that should be selected. Indices refer to the first team, but variables 
+                                         are selected for each team.
+        selectedAddVars (list of ints): It is assumed that after nTeams * nTeamVars variables there are additional variables present.
+                                        this parameter allows to select some of those variables. These will be added after selectedTeamVars 
+                                        for each team.
+        """  
+        nSelectedTeamVars = len(selectedTeamVars)
+        nSelectedAddVars  = len(selectedAddVars)
+        outSize = nTeams * nSelectedTeamVars + nTeams * nSelectedAddVars # number of neurons in the layer
+        nOutTeam = nSelectedTeamVars + nSelectedAddVars # this is the size of the layer output for each team
+        layer = mx.gluon.nn.Dense(units = outSize, activation = None, use_bias = False, in_units = inSize)
+        ## first initialize to 0, set individual weights afterwards.
+        layer.initialize(init = mx.initializer.Constant(0), ctx= mx.cpu())
+        
+        ## now do the tricky part of setting weights to 1 manually.        
+        for i in range(0, nSelectedTeamVars): # set the weights for the teamVars to 1
+            for team in range(0, nTeams):
+                thisInIdx = selectedTeamVars[i] + team * nTeamVars
+                thisOutIdx = i + team * nOutTeam
+                layer.collect_params().get("weight").data()[thisOutIdx, thisInIdx] = 1
+        
+        for i in range(0,nSelectedAddVars): # set the weights of the addVars input to each teams addVars in the output to 1
+            thisInIdx = selectedAddVars[i]
+            for team in range(0, nTeams):
+                thisOutIdx = nSelectedTeamVars + i + team * nOutTeam
+                layer.collect_params().get("weight").data()[thisOutIdx, thisInIdx] = 1
+
+        super(fixedInputSelector,self).__init__(block = layer, fixParams = True, **kwargs) # important to fixParams to prevent update
