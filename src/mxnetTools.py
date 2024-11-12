@@ -445,7 +445,7 @@ class a3cLSTMLayer(a3cBlock):
 class fixedInputSelector(a3cBlock):
     """
     Allows selection of specific variables from the input for each team. 
-    Weights are excluded from training
+    Weights are excluded from training (to fix them)
     """
     def __init__(self, inSize, nTeams, nTeamVars, selectedTeamVars, selectedAddVars = [] , **kwargs): 
         
@@ -458,13 +458,27 @@ class fixedInputSelector(a3cBlock):
                                          are selected for each team.
         selectedAddVars (list of ints): It is assumed that after nTeams * nTeamVars variables there are additional variables present.
                                         this parameter allows to select some of those variables. These will be added after selectedTeamVars 
-                                        for each team.
+                                        for each team They are referred to with their relative poasition in the add vars after all team vars
+                                        e.g. a 1 means, select the second team var (0 is the first). The index will be shifted according to nTeams * nTeamVars.
         """  
         nSelectedTeamVars = len(selectedTeamVars)
         nSelectedAddVars  = len(selectedAddVars)
+        nAddVars = inSize - nTeams * nTeamVars
         outSize = nTeams * nSelectedTeamVars + nTeams * nSelectedAddVars # number of neurons in the layer
         nOutTeam = nSelectedTeamVars + nSelectedAddVars # this is the size of the layer output for each team
+        for i in range(0, nSelectedAddVars): selectedAddVars[i] += (nTeams * nTeamVars) # get the correct indices
+        ## check for argument consistency concerning input shape and desired outputs
+        if nAddVars < 0: 
+            raise ValueError("Inconsistent input in fixedInputSelector.")
+        if not all(i < nTeamVars for i in selectedTeamVars): #selectedTeamVars really refer to the first team position
+            raise ValueError("Inconsistent input in fixedInputSelector. SelectedTeamVars exceed nTeamVars")
+        if not all(i < inSize for i in selectedTeamVars): #selectedTeamVars really is within array boundaries
+            raise ValueError("Inconsistent input in fixedInputSelector. SelectedTeamVars exceed inSize")
+        if not all(i < inSize for i in selectedAddVars): #selectedAddVars really is within array boundaries
+            raise ValueError("Inconsistent input in fixedInputSelector. SelectedAddVars exceed inSize")
+        
         layer = mx.gluon.nn.Dense(units = outSize, activation = None, use_bias = False, in_units = inSize)
+        
         ## first initialize to 0, set individual weights afterwards.
         layer.initialize(init = mx.initializer.Constant(0), ctx= mx.cpu())
         
