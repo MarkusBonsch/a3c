@@ -458,15 +458,13 @@ class fixedInputSelector(a3cBlock):
                                          are selected for each team.
         selectedAddVars (list of ints): It is assumed that after nTeams * nTeamVars variables there are additional variables present.
                                         this parameter allows to select some of those variables. These will be added after selectedTeamVars 
-                                        for each team They are referred to with their relative poasition in the add vars after all team vars
-                                        e.g. a 1 means, select the second team var (0 is the first). The index will be shifted according to nTeams * nTeamVars.
+                                        for each team.
         """  
         nSelectedTeamVars = len(selectedTeamVars)
         nSelectedAddVars  = len(selectedAddVars)
         nAddVars = inSize - nTeams * nTeamVars
         outSize = nTeams * nSelectedTeamVars + nTeams * nSelectedAddVars # number of neurons in the layer
         nOutTeam = nSelectedTeamVars + nSelectedAddVars # this is the size of the layer output for each team
-        for i in range(0, nSelectedAddVars): selectedAddVars[i] += (nTeams * nTeamVars) # get the correct indices
         ## check for argument consistency concerning input shape and desired outputs
         if nAddVars < 0: 
             raise ValueError("Inconsistent input in fixedInputSelector.")
@@ -477,7 +475,7 @@ class fixedInputSelector(a3cBlock):
         if not all(i < inSize for i in selectedAddVars): #selectedAddVars really is within array boundaries
             raise ValueError("Inconsistent input in fixedInputSelector. SelectedAddVars exceed inSize")
         
-        layer = mx.gluon.nn.Dense(units = outSize, activation = None, use_bias = False, in_units = inSize)
+        layer = mx.gluon.nn.Dense(units = outSize, activation = None, use_bias = False, in_units = inSize, flatten = False, prefix = "fIS_dense")
         
         ## first initialize to 0, set individual weights afterwards.
         layer.initialize(init = mx.initializer.Constant(0), ctx= mx.cpu())

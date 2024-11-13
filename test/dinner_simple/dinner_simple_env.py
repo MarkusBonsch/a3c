@@ -59,10 +59,9 @@ class dinner_env(env.environment):
         """
         self.travelMode = travelMode
         self.dinnerTime = dinnerTime
-        if nMinTeams == nMaxTeams:
-            self.padSize = padSize
-        else:
-            self.padSize = nMaxTeams
+        if nMinTeams > nMaxTeams: raise ValueError("nMinTeams is larger than nMaxTeams")
+        if nMaxTeams > padSize: raise ValueError("nMaxTeams is larger than padSize")
+        self.padSize = padSize
         self.shuffleTeams = shuffleTeams
         self.restrictValidActions = restrictValidActions
         # now we have to generate randomDinnerGenerators for all possible teamSizes
@@ -97,6 +96,11 @@ class dinner_env(env.environment):
         Returns the state as numpy array
         """
         return self.state
+    
+    def getVariableIndices(self):
+        """Returns the index positions of important variables in the raw state (dict)
+        """        
+        return self.state.stateIndices
         
     def raw2singleNetState(self):
         """
@@ -175,7 +179,9 @@ class dinner_env(env.environment):
         self.is_partDone = False # is set to True if all non-rescue teams have been assigned.
         self.score = 0
         self.lastReward = -np.Inf
-    
+        self.stateIndices = self.env.stateIndices ## Lookup table for variable positions in the input
+        self.stateIndices["activeCourse"] = [x + self.netState[0].shape[2] - 3 for x in [0,1,2]] # add activeCourse Info
+
     def update(self, action):
         """ 
         Updates the environment according to an action.
