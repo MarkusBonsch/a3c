@@ -447,7 +447,7 @@ class fixedInputSelector(a3cBlock):
     Allows selection of specific variables from the input for each team. 
     Weights are excluded from training (to fix them)
     """
-    def __init__(self, inSize, nTeams, nTeamVars, selectedTeamVars, selectedAddVars = [] , **kwargs): 
+    def __init__(self, inSize, nTeams, nTeamVars, selectedTeamVars, selectedAddVars = [] , prefix = "fIS_", **kwargs): 
         
         """
         Args: 
@@ -459,6 +459,7 @@ class fixedInputSelector(a3cBlock):
         selectedAddVars (list of ints): It is assumed that after nTeams * nTeamVars variables there are additional variables present.
                                         this parameter allows to select some of those variables. These will be added after selectedTeamVars 
                                         for each team.
+        prefix (string): the name of the layer
         """  
         nSelectedTeamVars = len(selectedTeamVars)
         nSelectedAddVars  = len(selectedAddVars)
@@ -475,7 +476,7 @@ class fixedInputSelector(a3cBlock):
         if not all(i < inSize for i in selectedAddVars): #selectedAddVars really is within array boundaries
             raise ValueError("Inconsistent input in fixedInputSelector. SelectedAddVars exceed inSize")
         
-        layer = mx.gluon.nn.Dense(units = outSize, activation = None, use_bias = False, in_units = inSize, flatten = False, prefix = "fIS_dense")
+        layer = mx.gluon.nn.Dense(units = outSize, activation = None, use_bias = False, in_units = inSize, flatten = False, prefix = prefix)
         
         ## first initialize to 0, set individual weights afterwards.
         layer.initialize(init = mx.initializer.Constant(0), ctx= mx.cpu())

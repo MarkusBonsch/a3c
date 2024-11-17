@@ -100,7 +100,7 @@ class dinner_env(env.environment):
     def getVariableIndices(self):
         """Returns the index positions of important variables in the raw state (dict)
         """        
-        return self.state.stateIndices
+        return self.env.stateIndices
         
     def raw2singleNetState(self):
         """

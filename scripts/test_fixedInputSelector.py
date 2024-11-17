@@ -17,6 +17,6 @@ input = mx.nd.expand_dims(input, 0)
 input = mx.nd.expand_dims(input, 0)
 
 net = mx.gluon.nn.HybridSequential()
-net.add(mxT.fixedInputSelector(inSize = 18, nTeams = 3, nTeamVars = 5, selectedTeamVars = [1,3], selectedAddVars = [1,2]))
+net.add(mxT.fixedInputSelector(inSize = 18, nTeams = 3, nTeamVars = 5, selectedTeamVars = [1,3], selectedAddVars = [16,17]))
 net.initialize(mx.initializer.One())
 net(input)
