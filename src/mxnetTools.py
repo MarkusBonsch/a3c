@@ -9,19 +9,18 @@ import mxnet as mx
 from mxnet import gluon
 import threading
 import os
+import re
 
 class a3cBlock(gluon.HybridBlock):
     """
     extensions for a3c.
     """
-    def __init__(self, block = None, fixParams = False, **kwargs):
+    def __init__(self, block = None, **kwargs):
         ## Arguments:
         ## block: the network layer. Usually a gluon.nn. . . block
-        ## fixParams: bool to remember whether the params of this block should be updated by the trainer
         super(a3cBlock, self).__init__(**kwargs)
         if block is not None:
             self.block = block
-        self.fixParams = fixParams
         
     def hybrid_forward(self, F, x):
         out = self.block(x) ## pass forward call to inner block
@@ -221,7 +220,8 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
             
     def initTrainer(self,optimizer = "rmsprop", 
                     optimizerArgs = {'learning_rate': 0.001, 'gamma1': 0.9,
-                                     'gamma2': 0, 'centered': True}):
+                                     'gamma2': 0, 'centered': True},
+                    fixedParameters = 'default'):
         """ 
         sets up the trainer. 
         ATTENTION: must be called after 
@@ -229,23 +229,30 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
         Args:
             optimizer (string): type of optimizer to be used
             optimizerArgs (dict): additional options for the optimizer
+            fixedParameters ('default' or a list of parameter names) All parameters that are mentioned here will not receive updates
+                            If 'default', all parameter names that have the flag '__FIXME__' are excluded.
         """
 
-        ## important step: get all parameters that should be updated. a3cBlocks with fixParams = True are excluded from update.
-        allParams = self.collect_params() # lookup table with all parameters
-        self.trainerParams = gluon.ParameterDict(shared = allParams) # container for all the parameters that need to be updated
-        for child in self._children.values(): # loop over all individual layers. Does not work with nested a3cBlocks
-            fixParams = False # normally, parameters should be updated by the trainer
-            if isinstance(child, a3cBlock) and child.fixParams: # in this case, parameters should be fixed.
-                fixParams = True
-            if not fixParams: # parameters should be added to the trainer
-                for paramName in child.collect_params().keys():
-                    # add this individual param to trainerParams
-                    self.trainerParams.get(paramName) # "get" tries to retrieve the parameter from "shared" if it is not yet available in trainerPArams
+        ## determine which parameters should be fixed
+        if fixedParameters == 'default':
+                allParams = self.collect_params() # lookup table with all parameters
+                fixedParameters = [] # list of parameter names to fix
+                for param in allParams.keys():
+                    if re.match('.*__FIXME__.*', param) is not None:
+                        fixedParameters.append(param)
         
-        self.trainer = gluon.Trainer(params=self.trainerParams,
-                                     optimizer= optimizer,
-                                     optimizer_params=optimizerArgs)
+        self.trainerParams = gluon.ParameterDict(shared = allParams) # container for all the parameters that need to be updated
+        for key in allParams.keys(): 
+            if not key in fixedParameters:
+                self.trainerParams.get(key) # "get" tries to retrieve the parameter from "shared" if it is not yet available in trainerParams
+        if not len(self.trainerParams.keys())==0: # if thie is 0, there are no parameters to be updated
+            self.trainer = gluon.Trainer(params=self.trainerParams,
+                                         optimizer= optimizer,
+                                         optimizer_params=optimizerArgs)
+        else: # no trainer needed because there are no parameters to update. Create dummy trainer.
+            def dummyTrainer(*args, **kwargs): # can take any argument and does nothing.
+                pass
+            self.trainer = dummyTrainer
         
     def save(self, outFolder, overwrite = False):
         """ 
@@ -461,6 +468,7 @@ class fixedInputSelector(a3cBlock):
                                         for each team.
         prefix (string): the name of the layer
         """  
+        prefix = prefix + '__FIXME__' # important to add the fixme flag to prevent from update
         nSelectedTeamVars = len(selectedTeamVars)
         nSelectedAddVars  = len(selectedAddVars)
         nAddVars = inSize - nTeams * nTeamVars
@@ -494,4 +502,20 @@ class fixedInputSelector(a3cBlock):
                 thisOutIdx = nSelectedTeamVars + i + team * nOutTeam
                 layer.collect_params().get("weight").data()[thisOutIdx, thisInIdx] = 1
 
-        super(fixedInputSelector,self).__init__(block = layer, fixParams = True, **kwargs) # important to fixParams to prevent update
+        super(fixedInputSelector,self).__init__(block = layer, **kwargs)
+
+class combinationLayer(a3cBlock):
+    """
+    takes the output of two a3cHybridSequentailNets and concatenates them together for further use.
+    """
+    def __init__(self, net1, net2, **kwargs):
+        """
+        net 1 (a3cHybridSequential (maybe any HybridBlock works)): first input network
+        net 2 (a3cHybridSequential (maybe any HybridBlock works)): second input network
+        """
+        super(combinationLayer,self).__init__(**kwargs) 
+        self.net1 = net1
+        self.net2 = net2
+    def hybrid_forward(self, F, x):
+        out = F.concat(self.net1(x), self.net2(x), dim = 2) ## assuming TNC layout
+        return(out)
