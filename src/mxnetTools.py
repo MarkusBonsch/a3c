@@ -232,15 +232,15 @@ class a3cHybridSequential(mx.gluon.nn.HybridSequential):
             fixedParameters ('default' or a list of parameter names) All parameters that are mentioned here will not receive updates
                             If 'default', all parameter names that have the flag '__FIXME__' are excluded.
         """
-
+        
+        allParams = self.collect_params() # lookup table with all parameters
         ## determine which parameters should be fixed
         if fixedParameters == 'default':
-                allParams = self.collect_params() # lookup table with all parameters
                 fixedParameters = [] # list of parameter names to fix
                 for param in allParams.keys():
                     if re.match('.*__FIXME__.*', param) is not None:
                         fixedParameters.append(param)
-        
+        self.fixedParams = fixedParameters
         self.trainerParams = gluon.ParameterDict(shared = allParams) # container for all the parameters that need to be updated
         for key in allParams.keys(): 
             if not key in fixedParameters:
