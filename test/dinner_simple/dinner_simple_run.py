@@ -15,6 +15,7 @@ import shutil
 
 from dinner_simple_env import dinner_env
 import mxnetTools as mxT
+import pretrainedLayers as pL
 import mxnet as mx
 from mainThread import mainThread as mT
 
@@ -22,8 +23,8 @@ from mainThread import mainThread as mT
 def dinnerMaker():
     return dinner_env(seqLength=1, 
                       useSeqLength=False,
-                      nMinTeams=24,
-                      nMaxTeams=24,
+                      nMinTeams = 9,
+                      nMaxTeams = 24,
                       padSize = 24,
                       restrictValidActions= False,
                       wishStarterProbability=1/3,
@@ -32,23 +33,24 @@ def dinnerMaker():
                       )
 
 test = dinnerMaker()
-nTeams = len(test.getValidActions())
-nVars = (test.getNetState().shape[2] - 3)//nTeams # -3 for the activeCourse at the end
+
+nTeams = test.getNTeams()
+inSize = test.getNetState().shape[2] 
+nTeamVars = test.getNTeamVars()
+
 
 def netMaker():
     net = mxT.a3cHybridSequential(useInitStates= True)
-    net.add(mx.gluon.nn.Conv1D(channels = 32, kernel_size = nVars, strides = nVars, activation = None, prefix = "c1"))
+    net.add(pL.freeSeatSelectorLayer(env = test, fixParams = True, prefix = "FSSL_"))
     net.add(mx.gluon.nn.ELU())
-#    net.add(mx.gluon.nn.Conv1D(channels = 16, kernel_size = 1, in_channels=16, strides = 1, activation = None, prefix = "c2"))
-#    net.add(mx.gluon.nn.ELU())
     net.add(mx.gluon.nn.Flatten())
-    net.add(mx.gluon.nn.Dense(units = 64, prefix = "fc1"))
+    net.add(mxT.a3cBlock(mx.gluon.nn.Dense(units = 64, prefix = "fc1")))
     net.add(mx.gluon.nn.ELU())
     net.add(mxT.a3cOutput(n_policy = nTeams, prefix = ""))
     net.initialize(init = mx.initializer.Xavier(magnitude = 0.1), ctx= mx.cpu())
-    # set inital parameters from per-trained model
-    # params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/v1_9teams_pad30/final/net-symbol.json",
-    #                                   param_file  = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/v1_9teams_pad30/final/net-0001.params",
+    ### ### set inital parameters from per-trained model
+    # params = mx.gluon.nn.SymbolBlock.imports(symbol_file = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/v8_fIS_conv6channels_fc64_24teams_pad24_attempt2/final/net-symbol.json",
+    #                                   param_file  = "C:/users/markus_2/Documents/Nerding/python/a3c/test/dinner_simple/v8_fIS_conv6channels_fc64_24teams_pad24_attempt2/final/net-0001.params",
     #                                   input_names = ['data'])
     # net.copyParams(fromNet=params)
     return(net)

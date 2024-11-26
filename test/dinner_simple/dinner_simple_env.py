@@ -243,5 +243,25 @@ class dinner_env(env.environment):
         returns the total score (sum of rewards of all actions taken)
         """
         return self.score
+    
+    def getNTeams(self):
+        """Returns the number of teams (including padded teams)
+        """
+        return self.getRawState().shape[0]
+    
+    def getNTeamVars(self):
+        """returns the number of variables for each team
+        """
+        return self.getRawState().shape[1]
+    
+    def getNAddVars(self):
+        """returns the number of variables that are added once after the teamVars
+        """
+        return self.getNetState().shape[2] - self.getNTeams() * self.getNTeamVars()
+    
+    def getInputSize(self):
+        """returns the total number of input variables
+        """
+        return self.getNetState().shape[2]
         
     
